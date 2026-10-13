@@ -7,14 +7,12 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
 
 ## 使用
 
-1. **更新数据**：双击 `重新生成.bat`（或命令行 `python export.py`）——只读三个项目的数据文件，不影响原项目
-2. **查看**：双击 `index.html`
-3. **页内刷新（免 bat，三板块都行）**：页脚「导入更新」→ 选包含项目数据的文件夹——
-   选 `D:\AAA_articafts` 三个板块一起刷，只选某个项目目录就只刷它。
-   视频收藏吃 `favorites_cache.json`+`notes.json`；番剧吃 `anime_note.db`+封面；
-   游戏吃 `steam.db`+封面/截图（SQLite 由页面内置的迷你读取器解析，零依赖；
-   图片副本存 IndexedDB）。数据只存本浏览器、比发布版新才生效，「还原发布版」一键回退。
-4. **发布**：把整个文件夹（`index.html` + `data.js` + `covers/` + `gmedia/`）上传到静态托管即可
+1. **同步发布**：双击 `同步数据.bat`——重新导出**本地已有**的数据并推送到 GitHub
+   （只读源项目文件，不触发B站/Steam/Bangumi更新；直连失败自动改走本机代理）
+2. **查看**：双击 `index.html`，或访问 GitHub Pages 线上站
+3. **页内更新**：页脚「检查更新」——从 GitHub 拉最新发布数据、页面热替换，无需重开页面
+   （带缓存穿透；`file://` 本地打开时走 raw.githubusercontent.com，需网络可达 GitHub）
+4. **仅本地重新导出不发布**：双击 `重新生成.bat`
 
 快捷键：`/` 聚焦搜索 · `Esc` 关弹窗/清空 · `1~4` 切换 总览/视频/番剧/游戏。
 视频卡片上的**笔记条可点击**，弹窗查看全文（含图片）；番剧/游戏卡片点击进详情弹窗，游戏笔记里的截图直接内嵌显示。
@@ -26,6 +24,7 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
 | `export.py` | 导出器：读源项目数据 → 生成 `data.js` + 封面/截图副本 |
 | `index.html` | 站点本体（手写，不参与生成，改样式直接编辑它） |
 | `data.js` | 生成物：`window.STATIC_DATA = {...}`（用 `<script>` 而非 fetch 加载，兼容 file://） |
+| `version.json` | 生成物：`{generated_at}` 轻量版本标记，页面「检查更新」先拉它对比再决定是否下载 data.js |
 | `covers/anime/` `covers/game/` | 生成物：封面副本（游戏封面命名 = URL 的 md5，与 Game Note `/img` 端点同规则） |
 | `gmedia/` | 生成物：游戏笔记里内嵌的截图（源文件在 Game Note `data/media/`） |
 | `WORKLOG.md` | 工作日志 |
@@ -40,7 +39,8 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
   `EXCLUDE_FOLDER_IDS` 再重新导出。
 - 站点内**没有任何凭据**（SESSDATA / Steam 登录态都不在此目录），数据本身只含收藏与笔记。
 - 失效视频、UP主名、笔记全文都在导出数据里，发布即公开，自行斟酌。
-- 页内「导入更新」产生的数据与图片副本只存在你自己浏览器的 localStorage / IndexedDB 里，不会进入仓库或发布物。
+- `同步数据.bat` 会把导出数据直接推到公开仓库——发布前确认 `export.py` 顶部
+  `EXCLUDE_FOLDER_IDS` 已排除私密收藏夹（脚本输出里也有提醒）。
 
 ## 封面来源
 

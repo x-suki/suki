@@ -147,10 +147,8 @@ footer{max-width:1240px;margin:6px auto 26px;padding:0 20px;color:var(--muted);f
 <script>
 "use strict";
 /* ---------- 数据与状态 ---------- */
-const D = window.STATIC_DATA || {};
-const LS_IMPORT = "suki.bili.import";  /* v1.1 旧版导入键，启动时迁移进统一存储 */
-/* 三个板块数据：init 先查本地导入（IndexedDB 优先、退化 localStorage），比发布版新才生效 */
-let BILI, ANIME, GAME;
+let D = window.STATIC_DATA || {};   /* 检查更新成功后整体热替换 */
+let BILI = D.bili, ANIME = D.anime, GAME = D.game;
 const ST_CN = {wishlist:"想看", watching:"在看", done:"看完", on_hold:"搁置", dropped:"弃置"};
 const ST_ORDER = ["watching","wishlist","done","on_hold","dropped"];
 const state = {
@@ -181,7 +179,7 @@ function rich(text){
   let s = esc(text);
   /* 本地截图：导出器把笔记里的 127.0.0.1:8321/media 改写成了 gmedia/ 相对路径 */
   s = s.replace(/gmedia\/[A-Za-z0-9_.\-]+\.(?:jpg|jpeg|png|webp|gif)/gi,
-    u => `<img src="${u}" data-file="${u}" loading="lazy" alt="">`);
+    u => `<img src="${u}" loading="lazy" alt="">`);
   s = s.replace(/(https?:\/\/[^\s<]+)/g, (m,u) => {
     if (/\.(jpg|jpeg|png|webp|gif)([?#]|$)/i.test(u))
       return `<img src="${u}" loading="lazy" alt="">`;
@@ -213,7 +211,7 @@ function videoCard(it){
 }
 function animeCard(w, idx){
   return `<div class="card a" data-anime="${idx}">
-    <div class="cov"><img src="${esc(w.cover||"")}"${w.cover ? ` data-file="${esc(w.cover)}"` : ""} loading="lazy" onerror="imgErr(this)" alt="">
+    <div class="cov"><img src="${esc(w.cover||"")}" loading="lazy" onerror="imgErr(this)" alt="">
       <span class="badge st-${esc(w.status)}">${ST_CN[w.status]||esc(w.status)}</span></div>
     <div class="ci"><div class="t" title="${esc(w.title)}">${esc(w.title)}</div>
       ${w.title_cn ? `<div class="m">${esc(w.title_cn)}</div>` : ""}
@@ -222,7 +220,7 @@ function animeCard(w, idx){
 }
 function gameCard(g, idx){
   return `<div class="card g" data-game="${idx}">
-    <div class="cov"><img src="${esc(g.cover||g.cover_url)}" loading="lazy" referrerpolicy="no-referrer"${g.cover ? ` data-file="${esc(g.cover)}"` : ""}
+    <div class="cov"><img src="${esc(g.cover||g.cover_url)}" loading="lazy" referrerpolicy="no-referrer"
         data-fb="${esc(g.cover_url)}" onerror="imgErr(this)" alt="">
       ${g.hours ? `<span class="dur">${fmtHours(g.hours)}h</span>` : ""}
       ${g.in_library ? "" : `<span class="badge st-on_hold">待玩</span>`}</div>
@@ -384,17 +382,16 @@ function refreshList(view){
     sec.querySelector(".count").textContent = gs.length + " 款";
     sec.querySelector(".grid").innerHTML = gs.map((g,i)=>gameCard(g,i)).join("") || `<div class="empty">没有匹配的内容</div>`;
   }
-  hydrate(sec);
 }
 
 /* ---------- 弹窗 ---------- */
 function openModal(html){ $("#modal").innerHTML = `<button class="x" data-close>×</button>` + html;
-  $("#overlay").hidden = false; hydrate($("#modal")); }
+  $("#overlay").hidden = false; }
 function closeModal(){ $("#overlay").hidden = true; }
 
 function animeModal(w){
   openModal(`
-    ${w.cover ? `<img class="banner" src="${esc(w.cover)}" data-file="${esc(w.cover)}" onerror="this.remove()" alt="">` : ""}
+    ${w.cover ? `<img class="banner" src="${esc(w.cover)}" onerror="this.remove()" alt="">` : ""}
     <h3>${esc(w.title)}</h3>
     ${w.title_cn ? `<div class="sub">${esc(w.title_cn)}</div>` : ""}
     <span class="badge st-${esc(w.status)}" style="position:static;display:inline-block">${ST_CN[w.status]||esc(w.status)}</span>
@@ -413,7 +410,7 @@ function animeModal(w){
 function gameModal(g){
   const store = `https://store.steampowered.com/app/${g.appid}/`;
   openModal(`
-    <img class="banner" src="${esc(g.cover||g.cover_url)}"${g.cover ? ` data-file="${esc(g.cover)}"` : ""} data-fb="${esc(g.cover_url)}" onerror="imgErr(this)" alt="">
+    <img class="banner" src="${esc(g.cover||g.cover_url)}" data-fb="${esc(g.cover_url)}" onerror="imgErr(this)" alt="">
     <h3>${esc(g.name)}</h3>
     ${g.name_en && g.name_en!==g.name ? `<div class="sub">${esc(g.name_en)}</div>` : ""}
     <div class="kv">
@@ -451,519 +448,53 @@ function noteModal(key){
       </div></div>`);
 }
 
-/* ---------- 导入更新（用户端重新生成，全部三个板块） ----------
-   点页脚「导入更新」选一个文件夹（如 D:\AAA_articafts；也可以只选单个项目的目录，
-   选到哪层就刷新哪些板块），页内按文件名认领数据：
-     视频收藏  favorites_cache.json + notes.json（按内容形状识别）
-     番剧      anime_note.db（表 works）+ 封面按 cover_file 文件名认领
-     游戏      steam.db（表 games/notes/links）+ media/ 下 md5(封面URL) 命名的封面
-               与笔记里 http://127.0.0.1:8321/media/X 的截图（改写为 gmedia/X）
-   SQLite 用内置最小读取器整表扫描（零依赖）；结果存本地（IndexedDB 优先、不可用时
-   退化 localStorage），比发布版新才生效；只存本浏览器，不影响发布出去的站点。 */
-/* ===IMPORT_CORE=== 纯逻辑、无 DOM 依赖（自动化测试整段抽取复用；D 在页首定义） */
-function _g(o, k, d){ return (o && k in o) ? o[k] : d; }
-
-/* 与 export.py 的 export_bili() 逐字段同构 */
-function transformBili(cache, notes){
-  const folders = [];
-  let total = 0;
-  for (const fo of (_g(cache, "folders", []) || [])){
-    const items = [];
-    for (const it of (_g(fo, "items", []) || [])){
-      const key = it.bvid || it.link || ("id:" + _g(it, "id"));
-      const note = (notes && notes[key]) || {};
-      items.push({
-        key,
-        title: _g(it, "title", ""),
-        upper: _g(it, "upper", ""),
-        cover: _g(it, "cover", ""),
-        duration: _g(it, "duration", 0),
-        play: _g(it, "play", 0),
-        fav_time: _g(it, "fav_time", 0),
-        dead: !!it.dead,
-        link: _g(it, "link", ""),
-        intro: (_g(it, "intro") || "").slice(0, 280),
-        first_seen: _g(it, "first_seen", 0),
-        note: (_g(note, "text") || "").trim() || null,
-      });
-    }
-    folders.push({id: fo.id, title: fo.title, count: items.length, items});
-    total += items.length;
-  }
-  return {user: _g(cache, "user", null), updated_at: _g(cache, "updated_at", null), folders, total};
+/* ---------- 检查更新：从 GitHub 拉最新发布数据 ----------
+   数据链路：本地磁盘 --（同步数据.bat：export.py + git push，只搬运不触发源项目更新）
+   --> GitHub 仓库 --（本按钮带缓存穿透拉 version.json / data.js）--> 页面热替换重渲染。
+   generated_at = 源数据最新修改时间（export.py 计算），源数据不变则产物字节不变。
+   线上（http/https）直接用相对路径；file:// 下 fetch 本地相对路径被禁，
+   改走 raw.githubusercontent.com（带 Access-Control-Allow-Origin: *）。 */
+const RAW_ORIGIN = "https://raw.githubusercontent.com/x-suki/suki/main/";
+function dataBase(){
+  return location.protocol === "file:" ? RAW_ORIGIN : "";
 }
-
-/* 按形状识别选进来的 JSON：收藏缓存 / 笔记 / 不认识 */
-function classifyJson(j){
-  if (!j || typeof j !== "object") return null;
-  if (Array.isArray(j.folders) && j.updated_at) return "cache";
-  if (!Array.isArray(j)){
-    const vs = Object.values(j);
-    if (!vs.length || vs.every(v => v && typeof v === "object" && !Array.isArray(v) && "text" in v))
-      return "notes";
-  }
-  return null;
-}
-
-/* ---- md5：游戏封面文件名 = md5(封面URL)（与 Game Note server.py 的 api_img 同规则） ---- */
-function md5(str){
-  const m = new TextEncoder().encode(str), len = m.length, bitLen = len * 8;
-  const total = (((len + 8) >> 6) + 1) << 6;
-  const buf = new Uint8Array(total);
-  buf.set(m); buf[len] = 0x80;
-  const bdv = new DataView(buf.buffer);
-  bdv.setUint32(total - 8, bitLen >>> 0, true);
-  bdv.setUint32(total - 4, Math.floor(bitLen / 0x100000000), true);
-  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
-  const S = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,5,9,14,20,5,9,14,20,
-             5,9,14,20,5,9,14,20,4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
-             6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
-  const K = new Uint32Array(64);
-  for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296);
-  const rotl = (x, c) => (x << c) | (x >>> (32 - c));
-  for (let off = 0; off < total; off += 64){
-    const M = new Uint32Array(16);
-    for (let i = 0; i < 16; i++) M[i] = bdv.getUint32(off + i * 4, true);
-    let A = a0, B = b0, C = c0, D = d0;
-    for (let i = 0; i < 64; i++){
-      let F, g;
-      if (i < 16){ F = (B & C) | (~B & D); g = i; }
-      else if (i < 32){ F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
-      else if (i < 48){ F = B ^ C ^ D; g = (3 * i + 5) % 16; }
-      else { F = C ^ (B | ~D); g = (7 * i) % 16; }
-      F = (F + A + K[i] + M[g]) >>> 0;
-      A = D; D = C; C = B;
-      B = (B + rotl(F, S[i])) >>> 0;
-    }
-    a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
-  }
-  const out = new Uint8Array(16), odv = new DataView(out.buffer);
-  odv.setUint32(0, a0, true); odv.setUint32(4, b0, true);
-  odv.setUint32(8, c0, true); odv.setUint32(12, d0, true);
-  return [...out].map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
-/* ---- 最小 SQLite 读取器：只做整表扫描（行序 = rowid 序），够三个库的只读导出 ---- */
-function sqliteOpen(buf){
-  const u8 = new Uint8Array(buf), dv = new DataView(buf);
-  const magic = "SQLite format 3";
-  for (let i = 0; i < 15; i++) if (u8[i] !== magic.charCodeAt(i)) throw new Error("不是 SQLite 数据库");
-  const pageSize = dv.getUint16(16) === 1 ? 65536 : dv.getUint16(16);
-  if (pageSize < 512 || (pageSize & (pageSize - 1)) !== 0) throw new Error("SQLite 页大小异常");
-  const usable = pageSize - u8[20];
-  if (dv.getUint32(56) !== 1) throw new Error("仅支持 UTF-8 编码的 SQLite 库");
-  const dec = new TextDecoder("utf-8");
-  function varint(a, p){ let v = 0;
-    for (let i = 0; i < 8; i++){ const b = a[p++]; v = v * 128 + (b & 127); if (!(b & 128)) return [v, p]; }
-    return [v * 256 + a[p++], p]; }
-  function record(payload){
-    const [hdLen, hp0] = varint(payload, 0);
-    let hp = hp0; const types = [];
-    while (hp < hdLen){ const [t, q] = varint(payload, hp); types.push(t); hp = q; }
-    const rdInt = (p, n) => { let v = 0n;
-      for (let i = 0; i < n; i++) v = (v << 8n) | BigInt(payload[p + i]);
-      if (payload[p] & 128) v -= (1n << BigInt(8 * n));
-      return Number(v); };
-    const pdv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-    let p = hdLen; const vals = [];
-    for (const t of types){
-      if (t === 0) vals.push(null);
-      else if (t >= 1 && t <= 6){ const n = [0, 1, 2, 3, 4, 6, 8][t]; vals.push(rdInt(p, n)); p += n; }
-      else if (t === 7){ vals.push(pdv.getFloat64(p, false)); p += 8; }
-      else if (t === 8) vals.push(0);
-      else if (t === 9) vals.push(1);
-      else { const n = (t - 12) >> 1;
-        vals.push((t & 1) ? dec.decode(payload.subarray(p, p + n)) : payload.slice(p, p + n)); p += n; }
-    }
-    return vals;
-  }
-  function cellPayload(cell){
-    const [plen, p1] = varint(u8, cell);
-    const [rowid, p2] = varint(u8, p1);
-    const maxLocal = usable - 35;
-    const minLocal = (((usable - 12) * 32 / 255) | 0) - 23;
-    let local = plen, ov = 0;
-    if (plen > maxLocal){
-      const k = minLocal + ((plen - minLocal) % (usable - 4));
-      local = k <= maxLocal ? k : minLocal;
-      ov = dv.getUint32(p2 + local);
-    }
-    let payload = u8.slice(p2, p2 + local);
-    if (ov){
-      const parts = [payload];
-      let cur = ov, rest = plen - local;
-      while (cur && rest > 0){
-        const off = (cur - 1) * pageSize;
-        const n = Math.min(rest, usable - 4);
-        parts.push(u8.slice(off + 4, off + 4 + n));
-        rest -= n; cur = dv.getUint32(off);
-      }
-      const all = new Uint8Array(parts.reduce((s, x) => s + x.length, 0));
-      let o = 0; for (const x of parts){ all.set(x, o); o += x.length; }
-      payload = all;
-    }
-    return [rowid, payload];
-  }
-  function walk(pageNo, cb){
-    const pageStart = (pageNo - 1) * pageSize;
-    const base = pageStart + (pageNo === 1 ? 100 : 0);
-    const type = u8[base];
-    const nCell = dv.getUint16(base + 3);
-    if (type === 5){
-      for (let i = 0; i < nCell; i++){
-        const cell = pageStart + dv.getUint16(base + 12 + 2 * i);
-        walk(dv.getUint32(cell), cb);
-      }
-      walk(dv.getUint32(base + 8), cb);
-    } else if (type === 13){
-      for (let i = 0; i < nCell; i++){
-        const cell = pageStart + dv.getUint16(base + 8 + 2 * i);
-        const [rowid, payload] = cellPayload(cell);
-        cb(rowid, payload);
-      }
-    } else throw new Error("不支持的 B 树页类型 " + type);
-  }
-  const schema = {};   /* 表名 -> {root, sql} */
-  walk(1, (rowid, payload) => {
-    const r = record(payload);
-    if (r[0] === "table" && typeof r[1] === "string") schema[r[1]] = {root: r[3], sql: r[4] || ""};
-  });
-  const unq = s => s.replace(/^["'`[]+|["'`\]]+$/g, "");
-  /* 列名解析：剥掉 -- 注释（schema 里常见行尾注释），按顶层逗号切列定义取首 token */
-  function columnNames(body){
-    const parts = []; let depth = 0, cur = "";
-    for (const ch of body){
-      if (ch === "(") depth++;
-      if (ch === ")") depth--;
-      if (ch === "," && !depth){ parts.push(cur); cur = ""; } else cur += ch;
-    }
-    parts.push(cur);
-    const kw = new Set(["PRIMARY", "UNIQUE", "CHECK", "FOREIGN", "CONSTRAINT"]);
-    const out = [];
-    for (const part of parts){
-      const s = part.trim();
-      if (!s) continue;
-      const first = unq(s.split(/\s+/)[0]);
-      if (kw.has(first.toUpperCase())) continue;
-      out.push(first);
-    }
-    return out;
-  }
-  const cache = {};
-  return {
-    names: Object.keys(schema),
-    rows(name){
-      if (cache[name]) return cache[name];
-      const t = schema[name];
-      if (!t) return (cache[name] = []);
-      const body = t.sql.slice(t.sql.indexOf("(") + 1, t.sql.lastIndexOf(")")).replace(/--[^\n]*/g, "");
-      const cols = columnNames(body);
-      /* INTEGER PRIMARY KEY 列在记录里存 NULL，实际值 = rowid */
-      let ipk = -1;
-      if (/\bINTEGER\s+PRIMARY\s+KEY(?!\s+DESC)\b/i.test(body)){
-        for (const part of body.split(",")){
-          if (/\bINTEGER\s+PRIMARY\s+KEY(?!\s+DESC)\b/i.test(part)){
-            ipk = cols.indexOf(unq(part.trim().split(/\s+/)[0])); break;
-          }
-        }
-      }
-      const out = [];
-      walk(t.root, (rowid, payload) => {
-        const vals = record(payload);
-        const o = {};
-        for (let i = 0; i < cols.length; i++)
-          o[cols[i]] = (i === ipk && vals[i] == null) ? rowid
-                     : (vals[i] === undefined ? null : vals[i]);
-        out.push(o);
-      });
-      return (cache[name] = out);
-    },
-  };
-}
-
-/* ---- 与 export.py 的 export_anime / export_game 逐字段同构 ---- */
-const IMG_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
-function gameCoverName(url){
-  if (!url) return null;
-  const path = String(url).split("#")[0].split("?")[0];
-  let ext = (path.match(/\.[A-Za-z0-9]+$/) || [""])[0].toLowerCase();
-  if (!IMG_EXTS.includes(ext)) ext = ".jpg";
-  return md5(url) + ext;
-}
-const GAME_MEDIA_RE = /http:\/\/127\.0\.0\.1:8321\/media\/([A-Za-z0-9_.\-]+)/g;
-function rewriteMedia(body, mediaFile, saveFile, missing){
-  return String(body || "").replace(GAME_MEDIA_RE, (m0, name) => {
-    const f = mediaFile(name);
-    if (f){ saveFile("gmedia/" + name, f); return "gmedia/" + name; }
-    missing.push(name); return m0;
-  });
-}
-function transformAnime(rows, coverFile, saveFile){
-  const works = [], missing = [];
-  const sorted = rows.slice().sort((a, b) =>           /* ORDER BY added_at DESC, id DESC */
-    (b.added_at || "") < (a.added_at || "") ? -1 :
-    (b.added_at || "") > (a.added_at || "") ? 1 : (b.id || 0) - (a.id || 0));
-  for (const w of sorted){
-    let cover = null;
-    if (w.cover_file){
-      const f = coverFile(w.cover_file);
-      if (f){ const path = "covers/anime/" + w.cover_file; saveFile(path, f); cover = path; }
-      else missing.push(w.cover_file);
-    }
-    works.push({
-      title: w.title || "", title_cn: w.title_cn || "", rating: w.rating ?? null,
-      my_rating: w.my_rating || 0, status: w.status || "wishlist", studio: w.studio || "",
-      air_date: w.air_date || "", episodes: w.episodes || "",
-      tags: JSON.parse(w.tags || "[]"),
-      summary: (w.summary || "").slice(0, 800), url: w.url || "",
-      cover, notes: (w.notes || "").trim() || null, added_at: w.added_at || "",
-    });
-  }
-  return {works, missing};
-}
-function transformGame(gameRows, noteRows, linkRows, mediaFile, saveFile){
-  const notesBy = {}, missing = [];
-  const notes = noteRows.slice().sort((a, b) =>   /* ORDER BY updated DESC（数值/文本日期都稳） */
-    b.updated > a.updated ? 1 : b.updated < a.updated ? -1 : 0);
-  for (const n of notes){
-    const body = rewriteMedia(n.body, mediaFile, saveFile, missing);
-    (notesBy[n.appid] = notesBy[n.appid] || []).push(
-      {title: n.title, body, updated: n.updated ?? null});
-  }
-  const linksBy = {};
-  for (const l of linkRows.slice().sort((a, b) => (a.id || 0) - (b.id || 0)))
-    (linksBy[l.appid] = linksBy[l.appid] || []).push({title: l.title, url: l.url});
-  const library = [], backlog = [];
-  for (const g of gameRows){
-    let cover = null;
-    const cn = gameCoverName(g.cover);
-    if (cn){
-      const f = mediaFile(cn);
-      if (f){ const path = "covers/game/" + cn; saveFile(path, f); cover = path; }
-    }
-    const item = {
-      appid: g.appid, name: g.name, name_en: g.name_en || "", hours: g.hours || 0,
-      cover, cover_url: g.cover || "", developers: g.developers || "",
-      publishers: g.publishers || "", release_date: g.release_date || "",
-      genres: g.genres || "", website: g.website || "",
-      description: (g.description || "").slice(0, 800),
-      in_library: g.in_library === undefined ? 1 : g.in_library,
-      first_seen: g.first_seen || 0,
-      notes: notesBy[g.appid] || [], links: linksBy[g.appid] || [],
-    };
-    (item.in_library ? library : backlog).push(item);
-  }
-  const bySeen = (a, b) => (b.first_seen || 0) - (a.first_seen || 0);
-  library.sort(bySeen); backlog.sort(bySeen);
-  return {library, backlog, missing};
-}
-/* ===IMPORT_CORE_END=== */
-
-/* ---- 本地存储:IDB 优先(能存图片副本);不可用(部分 file:// 环境)退化 localStorage ---- */
-let STORE_MODE = "probing";
-const IDB_NAME = "suki-import";
-let _idbP = null;
-function idb(){
-  if (!_idbP) _idbP = new Promise((res, rej) => {
-    const r = indexedDB.open(IDB_NAME, 1);
-    r.onupgradeneeded = () => { r.result.createObjectStore("data"); r.result.createObjectStore("files"); };
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-  });
-  return _idbP;
-}
-const withTimeout = (p, ms = 2000) =>
-  Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("存储超时")), ms))]);
-async function idbPut(store, key, val){
-  const db = await withTimeout(idb());
-  return new Promise((res, rej) => {
-    const tx = db.transaction(store, "readwrite");
-    tx.objectStore(store).put(val, key);
-    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-  });
-}
-function idbGet(store, key){
-  return withTimeout(idb()).then(db => new Promise((res, rej) => {
-    const rq = db.transaction(store).objectStore(store).get(key);
-    rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
-  }));
-}
-function idbClearStore(store){
-  return withTimeout(idb()).then(db => new Promise((res, rej) => {
-    const tx = db.transaction(store, "readwrite");
-    tx.objectStore(store).clear();
-    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-  }));
-}
-const LS_PREFIX = "suki.imp.";
-async function probeStore(){
+async function checkUpdate(base){
+  base = base === undefined ? dataBase() : base;
   try{
-    const ok = await Promise.race([
-      (async () => {
-        await idbPut("data", "__probe", 1); await idbGet("data", "__probe");
-        const db = await idb();
-        await new Promise((res, rej) => {
-          const tx = db.transaction("data", "readwrite");
-          tx.objectStore("data").delete("__probe");
-          tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-        });
-        return true;
-      })(),
-      new Promise(res => setTimeout(() => res(false), 1500)),
-    ]);
-    STORE_MODE = ok ? "idb" : "ls";
-  }catch(e){ STORE_MODE = "ls"; }
-}
-async function dataGet(key){
-  if (STORE_MODE === "idb"){ try{ return await idbGet("data", key); }catch(e){} }
-  try{ return JSON.parse(localStorage.getItem(LS_PREFIX + key) || "null"); }catch(e){ return null; }
-}
-async function dataPut(key, rec){
-  if (STORE_MODE === "idb"){ await idbPut("data", key, rec); return; }
-  localStorage.setItem(LS_PREFIX + key, JSON.stringify(rec));
-}
-async function filePut(path, blob){
-  if (STORE_MODE !== "idb") return false;
-  await idbPut("files", path, blob); return true;
-}
-function fileGet(path){
-  return STORE_MODE === "idb" ? idbGet("files", path).catch(() => null) : Promise.resolve(null);
-}
-
-/* 生效中的本地导入记录(页脚指示、还原按钮都看这里) */
-const APPLIED = {bili: null, anime: null, game: null};
-function sectionNewer(sec, rec){
-  if (sec === "bili") return !!(rec.payload && rec.payload.updated_at > ((D.bili && D.bili.updated_at) || 0));
-  return rec.stamp > (D.generated_at || 0);
-}
-async function loadImports(){
-  try{   /* v1.1 旧版 localStorage 导入迁移进统一存储 */
-    const old = localStorage.getItem(LS_IMPORT);
-    if (old){
-      const o = JSON.parse(old);
-      if (o && o.bili) await dataPut("bili", {stamp: o.bili.updated_at, imported_at: o.imported_at || 0, payload: o.bili});
-      localStorage.removeItem(LS_IMPORT);
+    setMsg("检查中…");
+    const r = await fetch(base + "version.json?t=" + Date.now());
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const v = await r.json();
+    if (!(v.generated_at > (D.generated_at || 0))){
+      setMsg(`已是最新（数据截至 ${fmtTs(D.generated_at || v.generated_at)}）`); return;
     }
-  }catch(e){}
-  for (const s of ["bili", "anime", "game"]){
-    const rec = await dataGet(s);
-    if (rec && rec.payload && sectionNewer(s, rec)) APPLIED[s] = rec;
+    setMsg(`发现新数据（截至 ${fmtTs(v.generated_at)}），下载中…`);
+    const r2 = await fetch(base + "data.js?t=" + Date.now());
+    if (!r2.ok) throw new Error("HTTP " + r2.status);
+    const txt = await r2.text();
+    window.STATIC_DATA = null;
+    (new Function(txt))();
+    const ND = window.STATIC_DATA || {};
+    if (!(ND.generated_at >= v.generated_at)) throw new Error("新数据校验未通过");
+    D = ND; BILI = ND.bili; ANIME = ND.anime; GAME = ND.game;
+    _flat = null;
+    $("#site-sub").textContent = BILI && BILI.user ? "@" + BILI.user.mid : "";
+    renderFooter();
+    setMsg(`已更新到 ${fmtTs(D.generated_at)} 的数据`);
+    show(state.view);
+  }catch(e){
+    setMsg("更新失败：" + (e && e.message || e) +
+      (location.protocol === "file:" ? "（file:// 下需网络可达 GitHub）" : "（检查网络/代理后重试）"));
   }
 }
 
-function renderFooter(msg){
-  const tags = [];
-  if (APPLIED.bili) tags.push(`视频收藏（${fmtTs(APPLIED.bili.payload.updated_at)}）`);
-  if (APPLIED.anime) tags.push(`番剧（${fmtTs(APPLIED.anime.stamp)}）`);
-  if (APPLIED.game) tags.push(`游戏（${fmtTs(APPLIED.game.stamp)}）`);
+function renderFooter(){
   $("#foot").innerHTML = `
-    <span>${D.generated_at ? `数据导出于 ${fmtTs(D.generated_at)} · 来源：B站收藏 / Anime Note / Game Note · 纯静态只读镜像` : "数据未导出——先运行 export.py"}</span>
-    <span> · </span><button class="flink" id="imp-open">导入更新</button>
-    ${tags.length ? `<span> · 本地导入：${tags.join("、")} </span><button class="flink" id="imp-clear">还原发布版</button>` : ""}
-    ${msg ? `<span id="imp-msg"> · ${esc(msg)}</span>` : ""}
-    <input type="file" id="imp-file" webkitdirectory hidden>`;
+    <span>${D.generated_at ? `数据截至 ${fmtTs(D.generated_at)} · 来源：B站收藏 / Anime Note / Game Note · 纯静态只读镜像` : "数据未导出——先运行 export.py"}</span>
+    <span> · </span><button class="flink" id="imp-open">检查更新</button>
+    <span id="imp-msg"></span>`;
 }
-
-async function importAll(list){   /* list: [{name, path, file}] */
-  const byName = new Map();
-  for (const it of list) byName.set(it.name, it.file);
-  const ok = [], skip = [];
-  const saves = [];
-  const sink = (p, blob) => saves.push(filePut(p, blob));
-  const section = async (label, fn) => { try{ await fn(); }catch(e){ skip.push(`${label}失败：${e && e.message || e}`); } };
-
-  await section("视频收藏", async () => {
-    let cache = null, notes = null;
-    for (const it of list){
-      if (!/\.json$/i.test(it.name)) continue;
-      let j; try{ j = JSON.parse(await it.file.text()); }catch(e){ continue; }
-      const k = classifyJson(j);
-      if (k === "cache") cache = j; else if (k === "notes") notes = j;
-    }
-    if (!cache){ skip.push("未找到视频收藏数据"); return; }
-    if (!notes)  /* 没找到 notes.json：沿用当前展示里的笔记，避免全部清空 */
-      for (const it of biliAll()) if (it.note) (notes = notes || {})[it.key] = {text: it.note};
-    const nb = transformBili(cache, notes);
-    if (!(nb.updated_at > ((BILI && BILI.updated_at) || 0))){ skip.push("视频收藏不比当前新"); return; }
-    const rec = {stamp: nb.updated_at, imported_at: Date.now() / 1000 | 0, payload: nb};
-    await dataPut("bili", rec); APPLIED.bili = rec;
-    BILI = nb; _flat = null;
-    ok.push(`视频收藏 ${nb.folders.length} 夹/${nb.total} 条`);
-  });
-
-  await section("番剧", async () => {
-    const f = byName.get("anime_note.db");
-    if (!f){ skip.push("未找到番剧数据"); return; }
-    const db = sqliteOpen(await f.arrayBuffer());
-    const {works, missing} = transformAnime(db.rows("works"), n => byName.get(n), sink);
-    const stamp = f.lastModified / 1000;
-    if (!(stamp > (D.generated_at || 0)) && ANIME){ skip.push("番剧不比发布版新"); return; }
-    const rec = {stamp, imported_at: Date.now() / 1000 | 0, payload: {works}};
-    await dataPut("anime", rec); APPLIED.anime = rec;
-    ANIME = rec.payload;
-    ok.push(`番剧 ${works.length} 部` + (missing.length ? `（缺 ${missing.length} 封面）` : ""));
-  });
-
-  await section("游戏", async () => {
-    const f = byName.get("steam.db");
-    if (!f){ skip.push("未找到游戏数据"); return; }
-    const db = sqliteOpen(await f.arrayBuffer());
-    const {library, backlog, missing} =
-      transformGame(db.rows("games"), db.rows("notes"), db.rows("links"), n => byName.get(n), sink);
-    const stamp = f.lastModified / 1000;
-    if (!(stamp > (D.generated_at || 0)) && GAME){ skip.push("游戏不比发布版新"); return; }
-    const rec = {stamp, imported_at: Date.now() / 1000 | 0, payload: {library, backlog}};
-    await dataPut("game", rec); APPLIED.game = rec;
-    GAME = rec.payload;
-    ok.push(`游戏 ${library.length}+${backlog.length}` + (missing.length ? `（缺 ${missing.length} 截图）` : ""));
-  });
-
-  try{
-    const nFiles = (await Promise.all(saves)).filter(Boolean).length;
-    if (saves.length && !nFiles) skip.push("图片副本未存（此环境存储受限）");
-    else if (nFiles) ok.push(`图片副本 ${nFiles} 张`);
-  }catch(e){ skip.push("图片副本存储失败：" + (e && e.message || e)); }
-
-  if (!ok.length && !skip.length)
-    return renderFooter("没找到可导入的数据——需要包含 favorites_cache.json / anime_note.db / steam.db 的目录");
-  $("#site-sub").textContent = BILI && BILI.user ? "@" + BILI.user.mid : "";
-  renderFooter(["已导入：" + ok.join(" · "), skip.join(" · ")].filter(Boolean).join("　"));
-  show(state.view);
-}
-
-async function clearImport(){
-  try{ await dataClearAll(); }catch(e){}
-  APPLIED.bili = APPLIED.anime = APPLIED.game = null;
-  BILI = D.bili; ANIME = D.anime; GAME = D.game;
-  _flat = null;
-  fileURLs.forEach(p => p.then(u => u && URL.revokeObjectURL(u)));
-  fileURLs.clear();
-  $("#site-sub").textContent = BILI && BILI.user ? "@" + BILI.user.mid : "";
-  renderFooter("已还原为发布版数据");
-  show(state.view);
-}
-async function dataClearAll(){
-  if (STORE_MODE === "idb"){ await idbClearStore("data"); await idbClearStore("files"); }
-  for (const k of ["bili", "anime", "game"]) localStorage.removeItem(LS_PREFIX + k);
-}
-
-/* 本地导入的封面/截图存在 IDB，渲染后把 data-file 图片换成 blob: 地址；
-   取不到就保留相对路径（发布站/本地 covers/ 目录照常工作） */
-const fileURLs = new Map();
-function fileURL(path){
-  if (!fileURLs.has(path))
-    fileURLs.set(path, fileGet(path).then(b => b ? URL.createObjectURL(b) : null).catch(() => null));
-  return fileURLs.get(path);
-}
-async function hydrate(root){
-  if (!root) return;
-  for (const img of root.querySelectorAll("img[data-file]")){
-    const p = img.getAttribute("data-file");
-    if (!p || img.dataset.hy) continue;
-    img.dataset.hy = "1";
-    const u = await fileURL(p);
-    if (u) img.src = u;
-  }
-}
+function setMsg(t){ const el = $("#imp-msg"); if (el) el.textContent = t ? " · " + t : ""; }
 
 /* ---------- 视图切换与事件 ---------- */
 function renderTabs(){
@@ -978,13 +509,11 @@ function show(view){
   if (view==="bili"){ renderBili(); ANIME_IDX=[]; GAME_IDX=[]; }
   if (view==="anime") renderAnime();
   if (view==="game") renderGame();
-  hydrate($("#v-"+view));
   renderTabs();
   window.scrollTo(0,0);
 }
 document.addEventListener("click", e => {
-  const ib = e.target.closest("#imp-open,#imp-clear");
-  if (ib){ if (ib.id === "imp-open") $("#imp-file").click(); else clearImport(); return; }
+  if (e.target.closest("#imp-open")) return checkUpdate();
   const tab = e.target.closest("[data-view]");
   if (tab) return show(tab.dataset.view);
   if (e.target.closest("[data-close]")) return closeModal();
@@ -1018,21 +547,11 @@ document.addEventListener("keydown", e => {
   const idx = ["1","2","3","4"].indexOf(e.key);
   if (idx >= 0) show(["overview","bili","anime","game"][idx]);
 });
-document.addEventListener("change", e => {
-  if (e.target.id === "imp-file" && e.target.files.length)
-    importAll([...e.target.files].map(f =>
-      ({name: f.name, path: f.webkitRelativePath || f.name, file: f})));
-});
 
 /* ---------- 启动 ---------- */
-(async function init(){
+(function init(){
   const title = "suki";  /* 代号占位，正式名待定 */
   $("#site-title").textContent = title; document.title = title;
-  await probeStore();
-  await loadImports();
-  BILI = (APPLIED.bili && APPLIED.bili.payload) || D.bili;
-  ANIME = (APPLIED.anime && APPLIED.anime.payload) || D.anime;
-  GAME = (APPLIED.game && APPLIED.game.payload) || D.game;
   $("#site-sub").textContent = BILI && BILI.user ? `@${BILI.user.mid}` : "";
   renderFooter();
   renderTabs();
