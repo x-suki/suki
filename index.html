@@ -122,10 +122,14 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
 .nitem .nb img{max-width:100%;border-radius:8px;display:block;margin:6px 0}
 .mlinks{margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
 
-footer{max-width:1240px;margin:6px auto 26px;padding:0 20px;color:var(--muted);font-size:12px}
-.flink{color:var(--ink2)}
-.flink:hover{color:var(--ink);text-decoration:underline}
-#imp-msg{color:var(--accent)}
+#q-global{background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;color:var(--ink);padding:5px 11px;width:190px;outline:none}
+#q-global:focus{border-color:var(--accent)}
+.hbtn{border:1px solid var(--border);border-radius:8px;padding:4px 11px;
+  color:var(--ink2);font-size:12.5px}
+.hbtn:hover{color:var(--accent);border-color:var(--accent)}
+#imp-msg{color:var(--accent);font-size:12px;max-width:330px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
 .empty{color:var(--muted);padding:40px 0;text-align:center}
 </style>
 </head>
@@ -133,14 +137,17 @@ footer{max-width:1240px;margin:6px auto 26px;padding:0 20px;color:var(--muted);f
 <header><div class="hd-in">
   <div><h1 id="site-title">suki</h1><span id="site-sub"></span></div>
   <nav id="tabs"></nav>
+  <input type="search" id="q-global" placeholder="搜索全部板块（含笔记）" autocomplete="off">
+  <button class="hbtn" id="imp-open">检查更新</button>
+  <span id="imp-msg"></span>
 </div></header>
 <main>
   <section id="v-overview"></section>
   <section id="v-bili" hidden></section>
   <section id="v-anime" hidden></section>
   <section id="v-game" hidden></section>
+  <section id="v-search" hidden></section>
 </main>
-<footer id="foot"></footer>
 <div id="overlay" hidden><div id="modal"></div></div>
 
 <script src="data.js"></script>
@@ -153,10 +160,12 @@ const ST_CN = {wishlist:"想看", watching:"在看", done:"看完", on_hold:"搁
 const ST_ORDER = ["watching","wishlist","done","on_hold","dropped"];
 const state = {
   view: "overview",
+  gq: "",
   bili: {folder: 0, q: "", sort: "fav_time", noted: false, hideDead: false},
   anime: {status: "all", q: ""},
   game: {shelf: "all", q: ""},
 };
+let _prevView = "overview";   /* 全局搜索清空后回到的视图 */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -480,7 +489,6 @@ async function checkUpdate(apiUrl){
     D = ND; BILI = ND.bili; ANIME = ND.anime; GAME = ND.game;
     _flat = null;
     $("#site-sub").textContent = BILI && BILI.user ? "@" + BILI.user.mid : "";
-    renderFooter();
     setMsg(`已更新到 ${fmtTs(D.generated_at)} 的数据`);
     show(state.view);
   }catch(e){
@@ -488,13 +496,46 @@ async function checkUpdate(apiUrl){
   }
 }
 
-function renderFooter(){
-  $("#foot").innerHTML = `
-    <span>${D.generated_at ? `数据截至 ${fmtTs(D.generated_at)} · 来源：B站收藏 / Anime Note / Game Note · 纯静态只读镜像` : "数据未导出——先运行 export.py"}</span>
-    <span> · </span><button class="flink" id="imp-open">检查更新</button>
-    <span id="imp-msg"></span>`;
-}
 function setMsg(t){ const el = $("#imp-msg"); if (el) el.textContent = t ? " · " + t : ""; }
+
+/* ---------- 全局搜索（跨三板块，含笔记与详情文字） ---------- */
+function renderSearch(){
+  const q = state.gq.trim().toLowerCase();
+  const sec = $("#v-search");
+  if (!q){ sec.innerHTML = `<div class="empty">输入关键词，搜索三个板块的全部内容（含笔记）</div>`; return; }
+  const vItems = [], aWorks = [], gItems = [];
+  if (BILI){
+    const seen = new Set();
+    for (const it of biliAll()){
+      if (seen.has(it.key)) continue; seen.add(it.key);
+      const hay = (it.title + " " + it.upper + " " + (it.intro || "") + " " + (it.note || "")).toLowerCase();
+      if (hay.includes(q)) vItems.push(it);
+    }
+  }
+  if (ANIME) for (const w of ANIME.works){
+    const hay = (w.title + " " + w.title_cn + " " + (w.studio || "") + " " + (w.tags || []).join(" ")
+      + " " + (w.summary || "") + " " + (w.notes || "")).toLowerCase();
+    if (hay.includes(q)) aWorks.push(w);
+  }
+  if (GAME) for (const g of GAME.library.concat(GAME.backlog)){
+    const hay = (g.name + " " + g.name_en + " " + g.genres + " " + g.developers + " " + g.publishers
+      + " " + g.description + " " + g.notes.map(n => n.title + " " + n.body).join(" ")
+      + " " + g.links.map(l => l.title).join(" ")).toLowerCase();
+    if (hay.includes(q)) gItems.push(g);
+  }
+  ANIME_IDX = aWorks; GAME_IDX = gItems;   /* 结果卡片也要能弹详情 */
+  const total = vItems.length + aWorks.length + gItems.length;
+  sec.innerHTML = `
+    <div class="bar"><div class="chips">
+      <span class="chip on">视频 ${vItems.length}</span>
+      <span class="chip">番剧 ${aWorks.length}</span>
+      <span class="chip">游戏 ${gItems.length}</span>
+    </div><span class="count">共 ${total} 条</span></div>
+    ${vItems.length ? `<h2 class="sec">视频收藏</h2><div class="grid v">${vItems.map(videoCard).join("")}</div>` : ""}
+    ${aWorks.length ? `<h2 class="sec">番剧</h2><div class="grid a">${aWorks.map((w,i)=>animeCard(w,i)).join("")}</div>` : ""}
+    ${gItems.length ? `<h2 class="sec">游戏</h2><div class="grid g">${gItems.map((g,i)=>gameCard(g,i)).join("")}</div>` : ""}
+    ${!total ? `<div class="empty">没有匹配的内容</div>` : ""}`;
+}
 
 /* ---------- 视图切换与事件 ---------- */
 function renderTabs(){
@@ -504,18 +545,19 @@ function renderTabs(){
 }
 function show(view){
   state.view = view;
-  for (const v of ["overview","bili","anime","game"]) $("#v-"+v).hidden = v !== view;
+  for (const v of ["overview","bili","anime","game","search"]) $("#v-"+v).hidden = v !== view;
   if (view==="overview") renderOverview();
   if (view==="bili"){ renderBili(); ANIME_IDX=[]; GAME_IDX=[]; }
   if (view==="anime") renderAnime();
   if (view==="game") renderGame();
+  if (view==="search") renderSearch();
   renderTabs();
   window.scrollTo(0,0);
 }
 document.addEventListener("click", e => {
   if (e.target.closest("#imp-open")) return checkUpdate();
   const tab = e.target.closest("[data-view]");
-  if (tab) return show(tab.dataset.view);
+  if (tab){ $("#q-global").value = ""; state.gq = ""; return show(tab.dataset.view); }
   if (e.target.closest("[data-close]")) return closeModal();
   if (e.target.id === "overlay") return closeModal();
   const bf = e.target.closest("[data-bf]");
@@ -537,6 +579,8 @@ document.addEventListener("keydown", e => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   if (e.key === "Escape"){
     if (!$("#overlay").hidden) return closeModal();
+    const g = $("#q-global");
+    if (document.activeElement === g && g.value){ g.value = ""; state.gq = ""; return show(_prevView); }
     if (typing) return document.activeElement.blur();
     return;
   }
@@ -553,7 +597,14 @@ document.addEventListener("keydown", e => {
   const title = "suki";  /* 代号占位，正式名待定 */
   $("#site-title").textContent = title; document.title = title;
   $("#site-sub").textContent = BILI && BILI.user ? `@${BILI.user.mid}` : "";
-  renderFooter();
+  const gq = $("#q-global");
+  gq.addEventListener("input", () => {
+    state.gq = gq.value;
+    if (state.gq.trim()){
+      if (state.view !== "search") _prevView = state.view;
+      show("search");
+    } else if (state.view === "search") show(_prevView);
+  });
   renderTabs();
   show("overview");
 })();
