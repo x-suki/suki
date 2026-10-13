@@ -128,18 +128,18 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
 .hbtn{border:1px solid var(--border);border-radius:8px;padding:4px 11px;
   color:var(--ink2);font-size:12.5px}
 .hbtn:hover{color:var(--accent);border-color:var(--accent)}
-#imp-msg{color:var(--accent);font-size:12px;max-width:330px;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
+#imp-msg{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:60;
+  background:var(--surface2);border:1px solid var(--accent);color:var(--accent);
+  border-radius:999px;padding:6px 16px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
 .empty{color:var(--muted);padding:40px 0;text-align:center}
 </style>
 </head>
 <body>
 <header><div class="hd-in">
+  <button class="hbtn" id="imp-open">检查更新</button>
   <div><h1 id="site-title">suki</h1><span id="site-sub"></span></div>
   <nav id="tabs"></nav>
   <input type="search" id="q-global" placeholder="搜索全部板块（含笔记）" autocomplete="off">
-  <button class="hbtn" id="imp-open">检查更新</button>
-  <span id="imp-msg"></span>
 </div></header>
 <main>
   <section id="v-overview"></section>
@@ -148,6 +148,7 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
   <section id="v-game" hidden></section>
   <section id="v-search" hidden></section>
 </main>
+<div id="imp-msg" hidden></div>
 <div id="overlay" hidden><div id="modal"></div></div>
 
 <script src="data.js"></script>
@@ -496,7 +497,14 @@ async function checkUpdate(apiUrl){
   }
 }
 
-function setMsg(t){ const el = $("#imp-msg"); if (el) el.textContent = t ? " · " + t : ""; }
+let _msgTimer = 0;
+function setMsg(t){
+  const el = $("#imp-msg"); if (!el) return;
+  el.textContent = t || "";
+  el.hidden = !t;
+  clearTimeout(_msgTimer);
+  if (t) _msgTimer = setTimeout(() => { el.hidden = true; }, 5000);
+}
 
 /* ---------- 全局搜索（跨三板块，含笔记与详情文字） ---------- */
 function renderSearch(){
