@@ -2,5 +2,7 @@ WORKLOG.md
 export.py
 重新生成.bat
 同步数据.bat
-auto_sync.bat
-sync.log
+notify_push.py
+notify_push.log
+.push_lock
+.push_stamp
