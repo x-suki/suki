@@ -14,6 +14,16 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
    （带缓存穿透；`file://` 本地打开时走 raw.githubusercontent.com，需网络可达 GitHub）
 4. **仅本地重新导出不发布**：双击 `重新生成.bat`
 
+## 自动同步（可选，一次设置）
+
+不想每次手动双击：执行一次下面的命令注册计划任务（普通权限即可），之后主机开机联网期间
+每小时静默同步一次（数据无变化零提交；日志 `sync.log` 只保留最近一次运行）：
+
+    schtasks /Create /F /TN "suki-auto-sync" /SC HOURLY /TR "\"D:\AAA_articafts\static access\auto_sync.bat\""
+
+删除任务：`schtasks /Delete /TN "suki-auto-sync" /F`。
+边界：主机关机/休眠期间无法读取磁盘，线上数据停留在最后一次同步；想立刻同步仍用 `同步数据.bat`。
+
 快捷键：`/` 聚焦搜索 · `Esc` 关弹窗/清空 · `1~4` 切换 总览/视频/番剧/游戏。
 视频卡片上的**笔记条可点击**，弹窗查看全文（含图片）；番剧/游戏卡片点击进详情弹窗，游戏笔记里的截图直接内嵌显示。
 
