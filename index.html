@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>suki</title>
+<style>
+:root{
+  --bg:#0f1115; --surface:#171a21; --surface2:#1d222c; --border:#262c38;
+  --ink:#e8eaf0; --ink2:#a8b0bf; --muted:#6b7382; --accent:#fb7299;
+  --st-wishlist:#5b9cf8; --st-watching:#3fbf7f; --st-done:#9a86e8;
+  --st-hold:#e0a34a; --st-drop:#8a93a3;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+
+header{position:sticky;top:0;z-index:10;background:rgba(15,17,21,.92);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
+.hd-in{max-width:1240px;margin:0 auto;padding:10px 20px;
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+#site-title{font-size:17px;margin:0;font-weight:650}
+#site-sub{color:var(--muted);font-size:12px}
+#tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+#tabs button{padding:6px 13px;border-radius:8px;color:var(--ink2)}
+#tabs button:hover{background:var(--surface2);color:var(--ink)}
+#tabs button.on{background:var(--surface2);color:var(--accent);font-weight:600}
+
+main{max-width:1240px;margin:0 auto;padding:20px}
+[hidden]{display:none!important}
+
+/* 统计卡（dataviz 规范：无衬线 semibold 数值、弱化标签、比例数字） */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:26px}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.tile .lb{font-size:12px;color:var(--muted)}
+.tile .vl{font-size:30px;font-weight:600;line-height:1.25}
+.tile .sb{font-size:12px;color:var(--muted)}
+
+h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
+
+/* 工具栏 */
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{padding:4px 11px;border-radius:999px;background:var(--surface);
+  border:1px solid var(--border);color:var(--ink2);font-size:12.5px}
+.chip:hover{color:var(--ink)}
+.chip.on{background:var(--surface2);border-color:var(--accent);color:var(--accent)}
+.bar input[type=search]{background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;color:var(--ink);padding:5px 11px;width:200px;outline:none}
+.bar input[type=search]:focus{border-color:var(--accent)}
+.bar select{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  color:var(--ink);padding:5px 8px;outline:none}
+.tgl{display:flex;align-items:center;gap:5px;color:var(--ink2);font-size:12.5px;user-select:none}
+.tgl input{accent-color:var(--accent)}
+.count{color:var(--muted);font-size:12.5px;margin-left:auto}
+
+/* 卡片网格 */
+.grid{display:grid;gap:12px}
+.grid.v{grid-template-columns:repeat(auto-fill,minmax(215px,1fr))}
+.grid.a{grid-template-columns:repeat(auto-fill,minmax(158px,1fr))}
+.grid.g{grid-template-columns:repeat(auto-fill,minmax(225px,1fr))}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  overflow:hidden;cursor:pointer;transition:transform .12s,border-color .12s}
+.card:hover{transform:translateY(-2px);border-color:#3a4356}
+.cov{position:relative;aspect-ratio:16/9;background:var(--surface2);overflow:hidden}
+.grid.a .cov{aspect-ratio:3/4}
+.grid.g .cov{aspect-ratio:2.14/1}
+.cov img{width:100%;height:100%;object-fit:cover;display:block}
+.dur{position:absolute;right:5px;bottom:5px;background:rgba(0,0,0,.72);
+  border-radius:5px;padding:0 6px;font-size:11.5px;line-height:19px;color:#ddd}
+.badge{position:absolute;left:5px;top:5px;border-radius:5px;padding:0 7px;
+  font-size:11px;line-height:19px;color:#fff;background:rgba(0,0,0,.6)}
+.b-dead{background:#4a5160;text-decoration:line-through}
+.b-new{left:auto;right:5px;top:5px;background:var(--accent)}
+.st-wishlist{background:color-mix(in srgb,var(--st-wishlist) 82%,#000)}
+.st-watching{background:color-mix(in srgb,var(--st-watching) 82%,#000)}
+.st-done{background:color-mix(in srgb,var(--st-done) 82%,#000)}
+.st-on_hold{background:color-mix(in srgb,var(--st-hold) 82%,#000)}
+.st-dropped{background:color-mix(in srgb,var(--st-drop) 82%,#000)}
+.ci{padding:8px 10px 10px}
+.t{font-size:13px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.m{font-size:12px;color:var(--muted);margin-top:3px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.note{margin-top:6px;font-size:12px;color:var(--ink2);border-left:2px solid var(--accent);
+  padding-left:7px;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap}
+.note[data-nkey]{cursor:pointer}
+.note[data-nkey]:hover{color:var(--ink);background:rgba(255,255,255,.04)}
+.card.dead{opacity:.45}
+.card.dead .t{text-decoration:line-through}
+.card.dead:hover{opacity:.75}
+.stars{color:var(--st-hold);letter-spacing:1px}
+
+/* 弹窗 */
+#overlay{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.62);
+  display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;overflow:auto}
+#modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  max-width:720px;width:100%;padding:20px 22px;position:relative}
+#modal .x{position:absolute;right:12px;top:10px;font-size:20px;color:var(--muted);line-height:1}
+#modal .x:hover{color:var(--ink)}
+#modal img.banner{width:100%;border-radius:9px;margin-bottom:14px}
+#modal h3{margin:0 32px 2px 0;font-size:17px;line-height:1.4}
+#modal .sub{color:var(--muted);font-size:12.5px;margin-bottom:10px}
+.kv{display:grid;grid-template-columns:76px 1fr;gap:4px 12px;font-size:13px;margin:10px 0}
+.kv .k{color:var(--muted)}
+.summary{font-size:13px;color:var(--ink2);white-space:pre-wrap;max-height:180px;overflow:auto;
+  border-top:1px solid var(--border);padding-top:10px}
+.nblock{border-top:1px solid var(--border);margin-top:12px;padding-top:10px}
+.nblock h4{margin:0 0 8px;font-size:13px;color:var(--ink2)}
+.nitem{background:var(--surface2);border:1px solid var(--border);border-radius:10px;
+  padding:10px 12px;margin-bottom:10px}
+.nitem:last-child{margin-bottom:0}
+.nhead{display:flex;align-items:baseline;gap:8px;margin-bottom:5px}
+.nitem .nt{font-size:13px;font-weight:600;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.ndate{margin-left:auto;font-size:11.5px;color:var(--muted);flex:none}
+.nitem .nb{font-size:13px;color:var(--ink2);white-space:pre-wrap;word-break:break-all}
+.nitem .nb img{max-width:100%;border-radius:8px;display:block;margin:6px 0}
+.mlinks{margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
+
+footer{max-width:1240px;margin:6px auto 26px;padding:0 20px;color:var(--muted);font-size:12px}
+.empty{color:var(--muted);padding:40px 0;text-align:center}
+</style>
+</head>
+<body>
+<header><div class="hd-in">
+  <div><h1 id="site-title">suki</h1><span id="site-sub"></span></div>
+  <nav id="tabs"></nav>
+</div></header>
+<main>
+  <section id="v-overview"></section>
+  <section id="v-bili" hidden></section>
+  <section id="v-anime" hidden></section>
+  <section id="v-game" hidden></section>
+</main>
+<footer id="foot"></footer>
+<div id="overlay" hidden><div id="modal"></div></div>
+
+<script src="data.js"></script>
+<script>
+"use strict";
+/* ---------- 数据与状态 ---------- */
+const D = window.STATIC_DATA || {};
+const BILI = D.bili, ANIME = D.anime, GAME = D.game;
+const ST_CN = {wishlist:"想看", watching:"在看", done:"看完", on_hold:"搁置", dropped:"弃置"};
+const ST_ORDER = ["watching","wishlist","done","on_hold","dropped"];
+const state = {
+  view: "overview",
+  bili: {folder: 0, q: "", sort: "fav_time", noted: false, hideDead: false},
+  anime: {status: "all", q: ""},
+  game: {shelf: "all", q: ""},
+};
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---------- 格式化 ---------- */
+const fmtPlay = p => p >= 1e4 ? (p/1e4).toFixed(1).replace(/\.0$/,"") + "万" : String(p||0);
+const fmtDur = s => {
+  s = Math.round(s||0); const h = s/3600|0, m = (s%3600)/60|0, x = s%60;
+  return h ? `${h}:${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}`
+           : `${m}:${String(x).padStart(2,"0")}`;
+};
+const fmtTs = t => { if(!t) return ""; const d = new Date(t*1000);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const fmtDs = s => (s||"").slice(0,10);
+const fmtHours = h => h ? (+h.toFixed(1)).toString() : "";
+const stars = n => n ? `<span class="stars">${"★".repeat(n)}${"☆".repeat(5-n)}</span>` : "";
+
+/* 笔记/简介富文本：先转义再链接化；图片直链内嵌 */
+function rich(text){
+  let s = esc(text);
+  /* 本地截图：导出器把笔记里的 127.0.0.1:8321/media 改写成了 gmedia/ 相对路径 */
+  s = s.replace(/gmedia\/[A-Za-z0-9_.\-]+\.(?:jpg|jpeg|png|webp|gif)/gi,
+    u => `<img src="${u}" loading="lazy" alt="">`);
+  s = s.replace(/(https?:\/\/[^\s<]+)/g, (m,u) => {
+    if (/\.(jpg|jpeg|png|webp|gif)([?#]|$)/i.test(u))
+      return `<img src="${u}" loading="lazy" alt="">`;
+    return `<a href="${u}" target="_blank" rel="noopener">${u}</a>`;
+  });
+  return s;
+}
+
+/* 封面加载失败：先试备用直链，再落占位图 */
+const PH = "data:image/svg+xml;utf8," + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="100%" height="100%" fill="#1d222c"/><text x="50%" y="54%" font-size="26" text-anchor="middle" fill="#3a4356">∅</text></svg>`);
+window.imgErr = el => {
+  const fb = el.getAttribute("data-fb");
+  if (fb && el.src !== fb) { el.src = fb; el.removeAttribute("data-fb"); return; }
+  el.onerror = null; el.src = PH;
+};
+
+/* ---------- 通用渲染 ---------- */
+function videoCard(it){
+  const isNew = it.first_seen && BILI && it.first_seen === BILI.updated_at;
+  return `<div class="card v ${it.dead?"dead":""}" data-link="${esc(it.link)}">
+    <div class="cov"><img src="${esc(it.cover)}" loading="lazy" referrerpolicy="no-referrer" onerror="imgErr(this)" alt="">
+      ${it.dead ? `<span class="badge b-dead">已失效</span>` : ""}
+      ${isNew ? `<span class="badge b-new">新</span>` : ""}
+      <span class="dur">${fmtDur(it.duration)}</span></div>
+    <div class="ci"><div class="t" title="${esc(it.title)}">${esc(it.title)}</div>
+      <div class="m">${esc(it.upper)} · ${fmtPlay(it.play)}播放 · ${fmtTs(it.fav_time)}</div>
+      ${it.note ? `<div class="note" data-nkey="${esc(it.key)}" title="点击查看笔记全文">📝 ${esc(it.note)}</div>` : ""}</div></div>`;
+}
+function animeCard(w, idx){
+  return `<div class="card a" data-anime="${idx}">
+    <div class="cov"><img src="${esc(w.cover||"")}" loading="lazy" onerror="imgErr(this)" alt="">
+      <span class="badge st-${esc(w.status)}">${ST_CN[w.status]||esc(w.status)}</span></div>
+    <div class="ci"><div class="t" title="${esc(w.title)}">${esc(w.title)}</div>
+      ${w.title_cn ? `<div class="m">${esc(w.title_cn)}</div>` : ""}
+      <div class="m">${w.rating ? `⭐ ${w.rating}` : ""}${w.my_rating ? " · " + stars(w.my_rating) : ""}</div>
+      ${w.notes ? `<div class="note">📝 ${esc(w.notes)}</div>` : ""}</div></div>`;
+}
+function gameCard(g, idx){
+  return `<div class="card g" data-game="${idx}">
+    <div class="cov"><img src="${esc(g.cover||g.cover_url)}" loading="lazy" referrerpolicy="no-referrer"
+        data-fb="${esc(g.cover_url)}" onerror="imgErr(this)" alt="">
+      ${g.hours ? `<span class="dur">${fmtHours(g.hours)}h</span>` : ""}
+      ${g.in_library ? "" : `<span class="badge st-on_hold">待玩</span>`}</div>
+    <div class="ci"><div class="t" title="${esc(g.name)}">${esc(g.name)}</div>
+      ${g.name_en && g.name_en !== g.name ? `<div class="m">${esc(g.name_en)}</div>` : ""}
+      <div class="m">${g.notes.length ? `📝 ${g.notes.length} 篇笔记` : esc(g.genres||"")}</div></div></div>`;
+}
+
+/* ---------- 总览 ---------- */
+function renderOverview(){
+  const works = ANIME ? ANIME.works : [];
+  const games = GAME ? GAME.library : [], backlog = GAME ? GAME.backlog : [];
+  const biliItems = biliAll();
+  const biliNotes = biliItems.filter(i=>i.note).length;
+  const gameNotes = games.concat(backlog).reduce((n,g)=>n+g.notes.length,0);
+  const animeNotes = works.filter(w=>w.notes).length;
+  const recent = (arr, k, n) => arr.slice().sort((a,b)=>(b[k]||0)-(a[k]||0)).slice(0,n);
+  const recentGames = recent(games, "first_seen", 6);
+  ANIME_IDX = works.slice(0, 8); GAME_IDX = recentGames;  /* 总览卡片也要能弹详情 */
+  const v = $("#v-overview");
+  v.innerHTML = `
+    <div class="tiles">
+      <div class="tile"><div class="lb">视频收藏</div><div class="vl">${biliItems.length}</div>
+        <div class="sb">${BILI ? BILI.folders.length + " 个收藏夹 · 笔记 " + biliNotes + " 条" : ""}</div></div>
+      <div class="tile"><div class="lb">番剧书架</div><div class="vl">${works.length}</div>
+        <div class="sb">在看 ${works.filter(w=>w.status==="watching").length} 部</div></div>
+      <div class="tile"><div class="lb">游戏库</div><div class="vl">${games.length}</div>
+        <div class="sb">待玩 ${backlog.length} 款</div></div>
+      <div class="tile"><div class="lb">手写笔记</div><div class="vl">${biliNotes + animeNotes + gameNotes}</div>
+        <div class="sb">视频 ${biliNotes} · 番剧 ${animeNotes} · 游戏 ${gameNotes}</div></div>
+    </div>
+    ${BILI ? `<h2 class="sec">最近收藏的视频</h2><div class="grid v">${recent(biliItems,"first_seen",6).map(videoCard).join("")}</div>` : ""}
+    ${ANIME ? `<h2 class="sec">书架上的番</h2><div class="grid a">${works.slice(0,8).map(animeCard).join("")}</div>` : ""}
+    ${GAME ? `<h2 class="sec">最近收录的游戏</h2><div class="grid g">${recentGames.map(gameCard).join("")}</div>` : ""}`;
+}
+
+/* ---------- 视频收藏 ---------- */
+let _flat = null;
+function biliAll(){
+  if (_flat) return _flat;
+  _flat = [];
+  if (BILI) for (const f of BILI.folders) for (const it of f.items) _flat.push(it);
+  return _flat;
+}
+function biliList(){
+  const s = state.bili;
+  let items = s.folder
+    ? (BILI.folders.find(f=>f.id===s.folder)||{items:[]}).items
+    : (()=>{ const seen = new Set();           /* 全部视图按 key 去重（跨夹重复收藏） */
+        return biliAll().filter(i=>!seen.has(i.key)&&seen.add(i.key)); })();
+  if (s.noted)   items = items.filter(i=>i.note);
+  if (s.hideDead) items = items.filter(i=>!i.dead);
+  const q = s.q.trim().toLowerCase();
+  if (q) items = items.filter(i =>
+    (i.title+" "+i.upper+" "+(i.note||"")).toLowerCase().includes(q));
+  const cmp = {fav_time:(a,b)=>b.fav_time-a.fav_time, play:(a,b)=>b.play-a.play,
+    duration:(a,b)=>b.duration-a.duration, title:(a,b)=>a.title.localeCompare(b.title,"zh")};
+  return items.slice().sort(cmp[s.sort]);
+}
+function renderBili(){
+  if (!BILI) { $("#v-bili").innerHTML = `<div class="empty">B站数据未导出</div>`; return; }
+  const s = state.bili;
+  const items = biliList();
+  $("#v-bili").innerHTML = `
+    <div class="bar">
+      <div class="chips">
+        <button class="chip ${!s.folder?"on":""}" data-bf="0">全部 ${BILI.total}</button>
+        ${BILI.folders.map(f=>`<button class="chip ${s.folder===f.id?"on":""}" data-bf="${f.id}">${esc(f.title)} ${f.count}</button>`).join("")}
+      </div></div>
+    <div class="bar">
+      <input type="search" id="q-bili" placeholder="搜索标题 / UP主 / 笔记" value="${esc(s.q)}">
+      <select id="sort-bili">
+        <option value="fav_time">按收藏时间</option><option value="play">按播放数</option>
+        <option value="duration">按时长</option><option value="title">按标题</option>
+      </select>
+      <label class="tgl"><input type="checkbox" id="n-bili" ${s.noted?"checked":""}>只看有笔记</label>
+      <label class="tgl"><input type="checkbox" id="d-bili" ${s.hideDead?"checked":""}>隐藏失效</label>
+      <span class="count">${items.length} 条</span></div>
+    <div class="grid v">${items.map(videoCard).join("") || `<div class="empty">没有匹配的内容</div>`}</div>`;
+  $("#sort-bili").value = s.sort;
+  const qEl = $("#q-bili");
+  qEl.addEventListener("input", ()=>{ s.q = qEl.value; refreshList("bili"); });
+  $("#n-bili").addEventListener("change", e=>{ s.noted = e.target.checked; renderBili(); });
+  $("#d-bili").addEventListener("change", e=>{ s.hideDead = e.target.checked; renderBili(); });
+}
+
+/* ---------- 番剧 ---------- */
+function renderAnime(){
+  if (!ANIME) { $("#v-anime").innerHTML = `<div class="empty">番剧数据未导出</div>`; return; }
+  const s = state.anime;
+  let ws = ANIME.works.slice().sort((a,b)=>{
+    const d = ST_ORDER.indexOf(a.status)-ST_ORDER.indexOf(b.status);
+    return d || (b.added_at||"").localeCompare(a.added_at||"");
+  });
+  if (s.status !== "all") ws = ws.filter(w=>w.status===s.status);
+  const q = s.q.trim().toLowerCase();
+  if (q) ws = ws.filter(w => (w.title+" "+w.title_cn+" "+(w.notes||"")).toLowerCase().includes(q));
+  $("#v-anime").innerHTML = `
+    <div class="bar">
+      <div class="chips">
+        <button class="chip ${s.status==="all"?"on":""}" data-st="all">全部 ${ANIME.works.length}</button>
+        ${ST_ORDER.map(st=>{ const n = ANIME.works.filter(w=>w.status===st).length;
+          return n ? `<button class="chip ${s.status===st?"on":""}" data-st="${st}">${ST_CN[st]} ${n}</button>` : ""; }).join("")}
+      </div>
+      <input type="search" id="q-anime" placeholder="搜索标题 / 笔记" value="${esc(s.q)}">
+      <span class="count">${ws.length} 部</span></div>
+    <div class="grid a">${ws.map(animeCard).join("") || `<div class="empty">没有匹配的内容</div>`}</div>`;
+  ANIME_IDX = ws;
+  const qEl = $("#q-anime");
+  qEl.addEventListener("input", ()=>{ s.q = qEl.value; refreshList("anime"); });
+}
+
+/* ---------- 游戏 ---------- */
+function renderGame(){
+  if (!GAME) { $("#v-game").innerHTML = `<div class="empty">游戏数据未导出</div>`; return; }
+  const s = state.game;
+  let gs = s.shelf==="lib" ? GAME.library : s.shelf==="backlog" ? GAME.backlog : GAME.library.concat(GAME.backlog);
+  const q = s.q.trim().toLowerCase();
+  if (q) gs = gs.filter(g => (g.name+" "+g.name_en+" "+g.notes.map(n=>n.title+" "+n.body).join(" ")).toLowerCase().includes(q));
+  $("#v-game").innerHTML = `
+    <div class="bar">
+      <div class="chips">
+        <button class="chip ${s.shelf==="all"?"on":""}" data-sh="all">全部 ${GAME.library.length + GAME.backlog.length}</button>
+        <button class="chip ${s.shelf==="lib"?"on":""}" data-sh="lib">游戏库 ${GAME.library.length}</button>
+        <button class="chip ${s.shelf==="backlog"?"on":""}" data-sh="backlog">待玩区 ${GAME.backlog.length}</button>
+      </div>
+      <input type="search" id="q-game" placeholder="搜索游戏 / 笔记" value="${esc(s.q)}">
+      <span class="count">${gs.length} 款</span></div>
+    <div class="grid g">${gs.map(gameCard).join("") || `<div class="empty">没有匹配的内容</div>`}</div>`;
+  GAME_IDX = gs;
+  const qEl = $("#q-game");
+  qEl.addEventListener("input", ()=>{ s.q = qEl.value; refreshList("game"); });
+}
+/* 卡片索引 → 弹窗数据（列表过滤后重新渲染时重建索引） */
+let ANIME_IDX = [], GAME_IDX = [];
+
+function refreshList(view){
+  /* 只重渲染网格区，保住搜索框焦点与工具栏状态 */
+  const sec = $("#v-"+view);
+  if (view==="bili"){
+    const items = biliList();
+    sec.querySelector(".count").textContent = items.length + " 条";
+    sec.querySelector(".grid").innerHTML = items.map(videoCard).join("") || `<div class="empty">没有匹配的内容</div>`;
+  } else if (view==="anime"){
+    let ws = ANIME.works.slice().sort((a,b)=>{
+      const d = ST_ORDER.indexOf(a.status)-ST_ORDER.indexOf(b.status);
+      return d || (b.added_at||"").localeCompare(a.added_at||""); });
+    if (state.anime.status!=="all") ws = ws.filter(w=>w.status===state.anime.status);
+    const q = state.anime.q.trim().toLowerCase();
+    if (q) ws = ws.filter(w => (w.title+" "+w.title_cn+" "+(w.notes||"")).toLowerCase().includes(q));
+    ANIME_IDX = ws;
+    sec.querySelector(".count").textContent = ws.length + " 部";
+    sec.querySelector(".grid").innerHTML = ws.map((w,i)=>animeCard(w,i)).join("") || `<div class="empty">没有匹配的内容</div>`;
+  } else {
+    let gs = state.game.shelf==="lib" ? GAME.library : state.game.shelf==="backlog" ? GAME.backlog : GAME.library.concat(GAME.backlog);
+    const q = state.game.q.trim().toLowerCase();
+    if (q) gs = gs.filter(g => (g.name+" "+g.name_en+" "+g.notes.map(n=>n.title+" "+n.body).join(" ")).toLowerCase().includes(q));
+    GAME_IDX = gs;
+    sec.querySelector(".count").textContent = gs.length + " 款";
+    sec.querySelector(".grid").innerHTML = gs.map((g,i)=>gameCard(g,i)).join("") || `<div class="empty">没有匹配的内容</div>`;
+  }
+}
+
+/* ---------- 弹窗 ---------- */
+function openModal(html){ $("#modal").innerHTML = `<button class="x" data-close>×</button>` + html;
+  $("#overlay").hidden = false; }
+function closeModal(){ $("#overlay").hidden = true; }
+
+function animeModal(w){
+  openModal(`
+    ${w.cover ? `<img class="banner" src="${esc(w.cover)}" onerror="this.remove()" alt="">` : ""}
+    <h3>${esc(w.title)}</h3>
+    ${w.title_cn ? `<div class="sub">${esc(w.title_cn)}</div>` : ""}
+    <span class="badge st-${esc(w.status)}" style="position:static;display:inline-block">${ST_CN[w.status]||esc(w.status)}</span>
+    <div class="kv">
+      ${w.studio ? `<div class="k">制作公司</div><div>${esc(w.studio)}</div>` : ""}
+      ${w.air_date ? `<div class="k">播出日期</div><div>${esc(w.air_date)}</div>` : ""}
+      ${w.episodes ? `<div class="k">话数</div><div>${esc(w.episodes)}</div>` : ""}
+      ${w.rating ? `<div class="k">来源评分</div><div>⭐ ${w.rating}</div>` : ""}
+      ${w.my_rating ? `<div class="k">我的评分</div><div>${stars(w.my_rating)}</div>` : ""}
+      ${w.tags.length ? `<div class="k">标签</div><div>${w.tags.map(t=>esc(t)).join(" / ")}</div>` : ""}
+    </div>
+    ${w.summary ? `<div class="summary">${esc(w.summary)}</div>` : ""}
+    ${w.notes ? `<div class="nblock"><h4>笔记</h4><div class="nitem"><div class="nb">${rich(w.notes)}</div></div></div>` : ""}
+    ${w.url ? `<div class="mlinks"><a href="${esc(w.url)}" target="_blank" rel="noopener">在来源站点查看 ↗</a></div>` : ""}`);
+}
+function gameModal(g){
+  const store = `https://store.steampowered.com/app/${g.appid}/`;
+  openModal(`
+    <img class="banner" src="${esc(g.cover||g.cover_url)}" data-fb="${esc(g.cover_url)}" onerror="imgErr(this)" alt="">
+    <h3>${esc(g.name)}</h3>
+    ${g.name_en && g.name_en!==g.name ? `<div class="sub">${esc(g.name_en)}</div>` : ""}
+    <div class="kv">
+      ${g.developers ? `<div class="k">开发商</div><div>${esc(g.developers)}</div>` : ""}
+      ${g.publishers ? `<div class="k">发行商</div><div>${esc(g.publishers)}</div>` : ""}
+      ${g.release_date ? `<div class="k">发行日期</div><div>${esc(g.release_date)}</div>` : ""}
+      ${g.genres ? `<div class="k">类型</div><div>${esc(g.genres)}</div>` : ""}
+      ${g.hours ? `<div class="k">总时数</div><div>${fmtHours(g.hours)} 小时</div>` : ""}
+      ${g.website ? `<div class="k">官网</div><div><a href="${esc(g.website)}" target="_blank" rel="noopener">${esc(g.website)}</a></div>` : ""}
+    </div>
+    ${g.description ? `<div class="summary">${esc(g.description)}</div>` : ""}
+    ${g.links.length ? `<div class="mlinks">${g.links.map(l=>`<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)||esc(l.url)} ↗</a>`).join("")}</div>` : ""}
+    ${g.notes.length ? `<div class="nblock"><h4>笔记 ${g.notes.length} 篇</h4>${g.notes.map(n=>`
+      <div class="nitem">
+        <div class="nhead">${n.title ? `<span class="nt">${esc(n.title)}</span>` : ""}${n.updated ? `<span class="ndate">${fmtTs(n.updated)}</span>` : ""}</div>
+        ${n.body ? `<div class="nb">${rich(n.body)}</div>` : ""}</div>`).join("")}</div>` : ""}
+    <div class="mlinks"><a href="${store}" target="_blank" rel="noopener">Steam 商店页 ↗</a></div>`);
+}
+
+/* 视频笔记详情：卡片上的笔记条可点击展开全文 */
+function noteModal(key){
+  const it = biliAll().find(i => i.key === key);
+  if (!it) return;
+  openModal(`
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <img src="${esc(it.cover)}" referrerpolicy="no-referrer" loading="lazy"
+        style="width:200px;aspect-ratio:16/9;object-fit:cover;border-radius:8px;align-self:flex-start" onerror="imgErr(this)" alt="">
+      <div style="flex:1;min-width:220px">
+        <h3>${esc(it.title)}</h3>
+        <div class="sub">${esc(it.upper)} · ${fmtTs(it.fav_time)} 收藏</div>
+        <div class="nblock" style="border-top:none;margin-top:4px;padding-top:0">
+          <h4>笔记</h4>
+          <div class="nitem"><div class="nb">${rich(it.note||"")}</div></div></div>
+        <div class="mlinks"><a href="${esc(it.link)}" target="_blank" rel="noopener">打开视频 ↗</a></div>
+      </div></div>`);
+}
+
+/* ---------- 视图切换与事件 ---------- */
+function renderTabs(){
+  const t = [["overview","总览",""],["bili","视频收藏",BILI?BILI.total:""],["anime","番剧",ANIME?ANIME.works.length:""],["game","游戏",GAME?GAME.library.length+GAME.backlog.length:""]];
+  $("#tabs").innerHTML = t.map(([v,l,n]) =>
+    `<button data-view="${v}" class="${state.view===v?"on":""}">${l}${n!==""?` <span style="opacity:.55">${n}</span>`:""}</button>`).join("");
+}
+function show(view){
+  state.view = view;
+  for (const v of ["overview","bili","anime","game"]) $("#v-"+v).hidden = v !== view;
+  if (view==="overview") renderOverview();
+  if (view==="bili"){ renderBili(); ANIME_IDX=[]; GAME_IDX=[]; }
+  if (view==="anime") renderAnime();
+  if (view==="game") renderGame();
+  renderTabs();
+  window.scrollTo(0,0);
+}
+document.addEventListener("click", e => {
+  const tab = e.target.closest("[data-view]");
+  if (tab) return show(tab.dataset.view);
+  if (e.target.closest("[data-close]")) return closeModal();
+  if (e.target.id === "overlay") return closeModal();
+  const bf = e.target.closest("[data-bf]");
+  if (bf){ state.bili.folder = +bf.dataset.bf; return renderBili(); }
+  const st = e.target.closest("[data-st]");
+  if (st){ state.anime.status = st.dataset.st; return renderAnime(); }
+  const sh = e.target.closest("[data-sh]");
+  if (sh){ state.game.shelf = sh.dataset.sh; return renderGame(); }
+  const nk = e.target.closest("[data-nkey]");
+  if (nk) return noteModal(nk.dataset.nkey);
+  const link = e.target.closest("[data-link]");
+  if (link){ if (link.dataset.link) window.open(link.dataset.link, "_blank", "noopener"); return; }
+  const am = e.target.closest("[data-anime]");
+  if (am && ANIME_IDX.length) return animeModal(ANIME_IDX[+am.dataset.anime]);
+  const gm = e.target.closest("[data-game]");
+  if (gm && GAME_IDX.length) return gameModal(GAME_IDX[+gm.dataset.game]);
+});
+document.addEventListener("keydown", e => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if (e.key === "Escape"){
+    if (!$("#overlay").hidden) return closeModal();
+    if (typing) return document.activeElement.blur();
+    return;
+  }
+  if (typing || !$("#overlay").hidden) return;
+  if (e.key === "/"){ e.preventDefault();
+    const q = $("#v-"+state.view).querySelector("input[type=search]");
+    if (q) q.focus(); return; }
+  const idx = ["1","2","3","4"].indexOf(e.key);
+  if (idx >= 0) show(["overview","bili","anime","game"][idx]);
+});
+
+/* ---------- 启动 ---------- */
+(function init(){
+  const title = "suki";  /* 代号占位，正式名待定 */
+  $("#site-title").textContent = title; document.title = title;
+  $("#site-sub").textContent = BILI && BILI.user ? `@${BILI.user.mid}` : "";
+  $("#foot").textContent = D.generated_at
+    ? `数据导出于 ${fmtTs(D.generated_at)} · 来源：B站收藏 / Anime Note / Game Note · 纯静态只读镜像`
+    : "数据未导出——先运行 export.py";
+  renderTabs();
+  show("overview");
+})();
+</script>
+</body>
+</html>
