@@ -449,33 +449,34 @@ function noteModal(key){
 }
 
 /* ---------- 检查更新：从 GitHub 拉最新发布数据 ----------
-   数据链路：本地磁盘 --（同步数据.bat：export.py + git push，只搬运不触发源项目更新）
-   --> GitHub 仓库 --（本按钮带缓存穿透拉 version.json / data.js）--> 页面热替换重渲染。
+   数据链路：本地磁盘 --（源项目更新成功自动触发 notify_push.py，或手动 同步数据.bat）
+   --> GitHub 仓库 --（本按钮经 api.github.com 拉取 data.js 内容）--> 页面热替换重渲染。
    generated_at = 源数据最新修改时间（export.py 计算），源数据不变则产物字节不变。
-   线上（http/https）直接用相对路径；file:// 下 fetch 本地相对路径被禁，
-   改走 raw.githubusercontent.com（带 Access-Control-Allow-Origin: *）。 */
-const RAW_ORIGIN = "https://raw.githubusercontent.com/x-suki/suki/main/";
-function dataBase(){
-  return location.protocol === "file:" ? RAW_ORIGIN : "";
-}
-async function checkUpdate(base){
-  base = base === undefined ? dataBase() : base;
+   为什么走 API contents 端点而不是直接 fetch data.js：raw.githubusercontent 与 Pages
+   的 CDN 会忽略查询串做缓存（实测推送后仍吐旧文件，raw 最长 300s / Pages 约 10 分钟），
+   api.github.com 仅 60s 缓存且带 Access-Control-Allow-Origin: *，file:// 与线上同一条路。 */
+const API_DATA = "https://api.github.com/repos/x-suki/suki/contents/data.js";
+
+async function checkUpdate(apiUrl){
+  apiUrl = apiUrl === undefined ? API_DATA : apiUrl;
   try{
     setMsg("检查中…");
-    const r = await fetch(base + "version.json?t=" + Date.now());
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const v = await r.json();
-    if (!(v.generated_at > (D.generated_at || 0))){
-      setMsg(`已是最新（数据截至 ${fmtTs(D.generated_at || v.generated_at)}）`); return;
+    const r = await fetch(apiUrl + "?t=" + Date.now());
+    if (!r.ok) throw new Error(r.status === 403 ? "GitHub API 限流，请稍后再试" : "HTTP " + r.status);
+    const j = await r.json();
+    if (!j.content) throw new Error("接口未返回内容");
+    const bytes = Uint8Array.from(atob(j.content.replace(/\n/g, "")), c => c.charCodeAt(0));
+    const txt = new TextDecoder("utf-8").decode(bytes);
+    const m = txt.match(/"generated_at":(\d+)/);
+    const fresh = m ? +m[1] : 0;
+    if (!(fresh > (D.generated_at || 0))){
+      setMsg(`已是最新（数据截至 ${fmtTs(D.generated_at || fresh)}）`); return;
     }
-    setMsg(`发现新数据（截至 ${fmtTs(v.generated_at)}），下载中…`);
-    const r2 = await fetch(base + "data.js?t=" + Date.now());
-    if (!r2.ok) throw new Error("HTTP " + r2.status);
-    const txt = await r2.text();
+    setMsg(`发现新数据（截至 ${fmtTs(fresh)}），应用中…`);
     window.STATIC_DATA = null;
     (new Function(txt))();
     const ND = window.STATIC_DATA || {};
-    if (!(ND.generated_at >= v.generated_at)) throw new Error("新数据校验未通过");
+    if (!(ND.generated_at >= fresh)) throw new Error("新数据校验未通过");
     D = ND; BILI = ND.bili; ANIME = ND.anime; GAME = ND.game;
     _flat = null;
     $("#site-sub").textContent = BILI && BILI.user ? "@" + BILI.user.mid : "";
@@ -483,8 +484,7 @@ async function checkUpdate(base){
     setMsg(`已更新到 ${fmtTs(D.generated_at)} 的数据`);
     show(state.view);
   }catch(e){
-    setMsg("更新失败：" + (e && e.message || e) +
-      (location.protocol === "file:" ? "（file:// 下需网络可达 GitHub）" : "（检查网络/代理后重试）"));
+    setMsg("更新失败：" + (e && e.message || e) + "（需网络可达 GitHub）");
   }
 }
 
