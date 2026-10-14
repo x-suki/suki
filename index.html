@@ -139,6 +139,9 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
 .hbtn{border:1px solid var(--border);border-radius:8px;padding:4px 11px;
   color:var(--ink2);font-size:12.5px}
 .hbtn:hover{color:var(--accent);border-color:var(--accent)}
+svg.ic{width:13px;height:13px;vertical-align:-2px;fill:none;stroke:currentColor;
+  stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#theme-toggle .ic{width:14px;height:14px;vertical-align:-3px}
 #imp-msg{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:60;
   background:var(--surface2);border:1px solid var(--accent);color:var(--accent);
   border-radius:999px;padding:6px 16px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
@@ -164,7 +167,7 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
   <nav id="tabs"></nav>
   <input type="search" id="q-global" placeholder="搜索全部板块（含笔记）" autocomplete="off">
   <button class="hbtn" id="imp-open">检查更新</button>
-  <button class="hbtn" id="theme-toggle" title="切换日间/夜间模式">☀️</button>
+  <button class="hbtn" id="theme-toggle" title="切换日间/夜间模式"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
 </div></header>
 <main>
   <section id="v-overview"></section>
@@ -195,6 +198,10 @@ let _prevView = "overview";   /* 全局搜索清空后回到的视图 */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+/* 线性图标：内联 SVG 走 currentColor，随文字颜色适配两种主题（替代彩色 emoji） */
+const ICON_NOTE = '<svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg>';
+const ICON_SUN = '<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
+const ICON_MOON = '<svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
 
 /* ---------- 格式化 ---------- */
 const fmtPlay = p => p >= 1e4 ? (p/1e4).toFixed(1).replace(/\.0$/,"") + "万" : String(p||0);
@@ -243,7 +250,7 @@ function videoCard(it){
       <span class="dur">${fmtDur(it.duration)}</span></div>
     <div class="ci"><div class="t" title="${esc(it.title)}">${esc(it.title)}</div>
       <div class="m">${esc(it.upper)} · ${fmtPlay(it.play)}播放 · ${fmtTs(it.fav_time)}</div>
-      ${it.note ? `<div class="note" data-nkey="${esc(it.key)}" title="点击查看笔记全文">📝 ${esc(it.note)}</div>` : ""}</div></div>`;
+      ${it.note ? `<div class="note" data-nkey="${esc(it.key)}" title="点击查看笔记全文">${ICON_NOTE} ${esc(it.note)}</div>` : ""}</div></div>`;
 }
 function animeCard(w, idx){
   return `<div class="card a" data-anime="${idx}">
@@ -251,8 +258,8 @@ function animeCard(w, idx){
       <span class="badge st-${esc(w.status)}">${ST_CN[w.status]||esc(w.status)}</span></div>
     <div class="ci"><div class="t" title="${esc(w.title)}">${esc(w.title)}</div>
       ${w.title_cn ? `<div class="m">${esc(w.title_cn)}</div>` : ""}
-      <div class="m">${w.rating ? `⭐ ${w.rating}` : ""}${w.my_rating ? " · " + stars(w.my_rating) : ""}</div>
-      ${w.notes ? `<div class="note">📝 ${esc(w.notes)}</div>` : ""}</div></div>`;
+      <div class="m">${w.rating ? `★ ${w.rating}` : ""}${w.my_rating ? " · " + stars(w.my_rating) : ""}</div>
+      ${w.notes ? `<div class="note">${ICON_NOTE} ${esc(w.notes)}</div>` : ""}</div></div>`;
 }
 function gameCard(g, idx){
   return `<div class="card g" data-game="${idx}">
@@ -262,7 +269,7 @@ function gameCard(g, idx){
       ${g.in_library ? "" : `<span class="badge st-on_hold">待玩</span>`}</div>
     <div class="ci"><div class="t" title="${esc(g.name)}">${esc(g.name)}</div>
       ${g.name_en && g.name_en !== g.name ? `<div class="m">${esc(g.name_en)}</div>` : ""}
-      <div class="m">${g.notes.length ? `📝 ${g.notes.length} 篇笔记` : esc(g.genres||"")}</div></div></div>`;
+      <div class="m">${g.notes.length ? `${ICON_NOTE} ${g.notes.length} 篇笔记` : esc(g.genres||"")}</div></div></div>`;
 }
 
 /* ---------- 总览 ---------- */
@@ -435,7 +442,7 @@ function animeModal(w){
       ${w.studio ? `<div class="k">制作公司</div><div>${esc(w.studio)}</div>` : ""}
       ${w.air_date ? `<div class="k">播出日期</div><div>${esc(w.air_date)}</div>` : ""}
       ${w.episodes ? `<div class="k">话数</div><div>${esc(w.episodes)}</div>` : ""}
-      ${w.rating ? `<div class="k">来源评分</div><div>⭐ ${w.rating}</div>` : ""}
+      ${w.rating ? `<div class="k">来源评分</div><div>★ ${w.rating}</div>` : ""}
       ${w.my_rating ? `<div class="k">我的评分</div><div>${stars(w.my_rating)}</div>` : ""}
       ${w.tags.length ? `<div class="k">标签</div><div>${w.tags.map(t=>esc(t)).join(" / ")}</div>` : ""}
     </div>
@@ -632,7 +639,7 @@ document.addEventListener("keydown", e => {
   function applyTheme(t){
     document.documentElement.dataset.theme = t;
     const b = $("#theme-toggle");
-    b.textContent = t === "light" ? "🌙" : "☀️";
+    b.innerHTML = t === "light" ? ICON_MOON : ICON_SUN;
     b.title = t === "light" ? "切换到夜间模式" : "切换到日间模式";
     PH = t === "light" ? phSVG("#eef0f5","#c3cad8") : phSVG("#1d222c","#3a4356");
   }
