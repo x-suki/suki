@@ -151,7 +151,8 @@ svg.ic{width:13px;height:13px;vertical-align:-2px;fill:none;stroke:currentColor;
 @media (max-width:820px){
   .hd-in{padding:8px 12px;gap:9px}
   #imp-open{order:1;margin-left:auto}
-  #theme-toggle{order:2}
+  #local-refresh{order:2}
+  #theme-toggle{order:3}
   #tabs{order:3;flex:0 0 100%;margin-left:0;flex-wrap:nowrap;overflow-x:auto;
     scrollbar-width:none;-webkit-overflow-scrolling:touch}
   #tabs::-webkit-scrollbar{display:none}
@@ -167,6 +168,7 @@ svg.ic{width:13px;height:13px;vertical-align:-2px;fill:none;stroke:currentColor;
   <nav id="tabs"></nav>
   <input type="search" id="q-global" placeholder="搜索全部板块（含笔记）" autocomplete="off">
   <button class="hbtn" id="imp-open">检查更新</button>
+  <button class="hbtn" id="local-refresh">本机刷新</button>
   <button class="hbtn" id="theme-toggle" title="切换日间/夜间模式"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
 </div></header>
 <main>
@@ -500,43 +502,142 @@ function noteModal(key){
    api.github.com 仅 60s 缓存且带 Access-Control-Allow-Origin: *，file:// 与线上同一条路。 */
 const API_DATA = "https://api.github.com/repos/x-suki/suki/contents/data.js";
 
-async function checkUpdate(apiUrl){
+/* 拉取仓库上的 data.js，比当前新则热替换重渲染；返回 {fresh, applied}，不负责提示 */
+async function pullLatest(apiUrl){
   apiUrl = apiUrl === undefined ? API_DATA : apiUrl;
+  const r = await fetch(apiUrl + "?t=" + Date.now());
+  if (!r.ok) throw new Error(r.status === 403 ? "GitHub API 限流，请稍后再试" : "HTTP " + r.status);
+  const j = await r.json();
+  if (!j.content) throw new Error("接口未返回内容");
+  const bytes = Uint8Array.from(atob(j.content.replace(/\n/g, "")), c => c.charCodeAt(0));
+  const txt = new TextDecoder("utf-8").decode(bytes);
+  const m = txt.match(/"generated_at":(\d+)/);
+  const fresh = m ? +m[1] : 0;
+  if (!(fresh > (D.generated_at || 0))) return {fresh, applied: false};
+  window.STATIC_DATA = null;
+  (new Function(txt))();
+  const ND = window.STATIC_DATA || {};
+  if (!(ND.generated_at >= fresh)) throw new Error("新数据校验未通过");
+  D = ND; BILI = ND.bili; ANIME = ND.anime; GAME = ND.game;
+  _flat = null;
+  $("#site-sub").textContent = BILI && BILI.user ? "@" + BILI.user.mid : "";
+  show(state.view);
+  return {fresh, applied: true};
+}
+
+async function checkUpdate(apiUrl){
   try{
     setMsg("检查中…");
-    const r = await fetch(apiUrl + "?t=" + Date.now());
-    if (!r.ok) throw new Error(r.status === 403 ? "GitHub API 限流，请稍后再试" : "HTTP " + r.status);
-    const j = await r.json();
-    if (!j.content) throw new Error("接口未返回内容");
-    const bytes = Uint8Array.from(atob(j.content.replace(/\n/g, "")), c => c.charCodeAt(0));
-    const txt = new TextDecoder("utf-8").decode(bytes);
-    const m = txt.match(/"generated_at":(\d+)/);
-    const fresh = m ? +m[1] : 0;
-    if (!(fresh > (D.generated_at || 0))){
-      setMsg(`已是最新（数据截至 ${fmtTs(D.generated_at || fresh)}）`); return;
-    }
-    setMsg(`发现新数据（截至 ${fmtTs(fresh)}），应用中…`);
-    window.STATIC_DATA = null;
-    (new Function(txt))();
-    const ND = window.STATIC_DATA || {};
-    if (!(ND.generated_at >= fresh)) throw new Error("新数据校验未通过");
-    D = ND; BILI = ND.bili; ANIME = ND.anime; GAME = ND.game;
-    _flat = null;
-    $("#site-sub").textContent = BILI && BILI.user ? "@" + BILI.user.mid : "";
-    setMsg(`已更新到 ${fmtTs(D.generated_at)} 的数据`);
-    show(state.view);
+    const {applied} = await pullLatest(apiUrl);
+    setMsg(applied ? `已更新到 ${fmtTs(D.generated_at)} 的数据`
+                   : `已是最新（数据截至 ${fmtTs(D.generated_at)}）`);
   }catch(e){
     setMsg("更新失败：" + (e && e.message || e) + "（需网络可达 GitHub）");
   }
 }
 
+/* ---------- 本机刷新：让数据主机现拉现发 ----------
+   链路：页面 fetch 127.0.0.1（三服务 CORS 白名单只放行本站来源；file:// 的 null 源
+   服务端不放行，这里也提前拦）→ 各服务拉源站 → 已有钩子自动推 GitHub → 轮询检查更新收尾。
+   服务没跑时跳 suki-refresh: 协议把服务静默拉起（注册见 README；处理器只拉服务不触发）。 */
+const LOCAL_SVCS = [
+  { key: "bili",  name: "B站收藏", port: 8231, probe: "/api/status" },
+  { key: "game",  name: "游戏库",  port: 8321, probe: "/api/ping" },
+  { key: "anime", name: "番剧",    port: 8642, probe: "/api/ping" },
+];
+const localBase = s => `http://127.0.0.1:${s.port}`;
+
+async function probeLocal(s, ms = 1500){
+  try{
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), ms);
+    const r = await fetch(localBase(s) + s.probe, {signal: ac.signal, cache: "no-store"});
+    clearTimeout(t);
+    return r.ok;
+  }catch(e){ return false; }
+}
+
+async function localRefresh(){
+  if (location.protocol === "file:"){
+    return setMsg("本机刷新仅在线上站可用（file:// 打开时浏览器禁止访问本地服务），请到 GitHub Pages 上的站点操作");
+  }
+  setMsg("探测本机服务…");
+  const probeAll = async () => new Map(await Promise.all(
+    LOCAL_SVCS.map(async s => [s.key, await probeLocal(s)])));
+  let stat = await probeAll();
+  if (LOCAL_SVCS.some(s => !stat.get(s.key))){
+    setMsg("部分服务未运行，正在拉起（如浏览器询问，请允许打开 suki-refresh）…");
+    try{ location.href = "suki-refresh:refresh"; }catch(e){}
+    for (let i = 0; i < 14 && LOCAL_SVCS.some(s => !stat.get(s.key)); i++){
+      await new Promise(r => setTimeout(r, 1500));
+      stat = await probeAll();
+    }
+  }
+  const up = LOCAL_SVCS.filter(s => stat.get(s.key));
+  const down = LOCAL_SVCS.filter(s => !stat.get(s.key)).map(s => s.name).join("、");
+  if (!up.length) return setMsg("本机服务未就绪：服务未启动或协议处理器未注册（见 README「本机刷新」）");
+  const tail = down ? `；${down}未运行，未刷新` : "";
+  setMsg(`${up.map(s => s.name).join("、")} 同步中…`);
+  const tasks = up.map(async s => {
+    if (s.key === "bili"){
+      const pr = await fetch(localBase(s) + "/api/refresh", {method: "POST", cache: "no-store"});
+      if (!pr.ok) throw new Error("HTTP " + pr.status);
+      const pj = await pr.json().catch(() => ({}));
+      if (pj.ok === false && !/已有同步/.test(pj.error || "")) throw new Error(pj.error || "触发失败");
+      for (let i = 0; i < 150; i++){          /* 最长约 5 分钟 */
+        await new Promise(r => setTimeout(r, 2000));
+        const g = await fetch(localBase(s) + "/api/progress", {cache: "no-store"});
+        const gj = await g.json();
+        if (!gj.running){
+          if (gj.error) throw new Error(gj.error);
+          return "同步完成";
+        }
+        if (gj.message) setMsg(`B站收藏：${gj.message}`);
+      }
+      throw new Error("同步超时");
+    }
+    if (s.key === "game"){
+      const r = await fetch(localBase(s) + "/api/recent?force=1", {cache: "no-store"});
+      const j = await r.json();
+      if (!r.ok || j.ok === false) throw new Error(j.message || j.error || "HTTP " + r.status);
+      const d = j.data || {};
+      const n = (d.added || []).length + (d.backlog_removed || []).length;
+      return n ? `新入库 ${n} 款` : "库内无变化";
+    }
+    const r = await fetch(localBase(s) + "/api/refresh_all", {method: "POST", cache: "no-store"});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "HTTP " + r.status);
+    const f = (j.failed || []).length;
+    return `已刷新 ${(j.refreshed || []).length} 条${f ? `，失败 ${f} 条` : ""}`;
+  });
+  const rs = await Promise.allSettled(tasks);
+  const okMsg = [], errMsg = [];
+  up.forEach((s, i) => {
+    const r = rs[i];
+    if (r.status === "fulfilled") okMsg.push(`${s.name} ${r.value}`);
+    else errMsg.push(`${s.name} 失败（${r.reason && r.reason.message || r.reason}）`);
+  });
+  if (!okMsg.length) return setMsg(`本机刷新失败：${errMsg.join("；")}${tail}`);
+  setMsg("同步完成，检查发布…");
+  /* 推送刚发生；api.github.com 有 60s 缓存，轮询等新版本出现（3s 首查 + 10s × 11） */
+  let applied = false, pullErr = "";
+  for (let i = 0; i < 12 && !applied && !pullErr; i++){
+    await new Promise(r => setTimeout(r, i ? 10000 : 3000));
+    try{ applied = (await pullLatest()).applied; }
+    catch(e){ pullErr = e && e.message || e; }
+  }
+  if (applied) setMsg(`已更新到 ${fmtTs(D.generated_at)}（${okMsg.join("；")}）${tail}`, 8000);
+  else if (pullErr) setMsg(`发布检查失败：${pullErr}；同步结果稍后用「检查更新」确认（${okMsg.join("；")}）${tail}`, 8000);
+  else setMsg(`已是最新（${okMsg.join("；")}）${tail}`, 8000);
+}
+
 let _msgTimer = 0;
-function setMsg(t){
+function setMsg(t, hideMs){
   const el = $("#imp-msg"); if (!el) return;
   el.textContent = t || "";
   el.hidden = !t;
   clearTimeout(_msgTimer);
-  if (t) _msgTimer = setTimeout(() => { el.hidden = true; }, 5000);
+  if (t) _msgTimer = setTimeout(() => { el.hidden = true; }, hideMs || 5000);
 }
 
 /* ---------- 全局搜索（跨三板块，含笔记与详情文字） ---------- */
@@ -597,6 +698,7 @@ function show(view){
 }
 document.addEventListener("click", e => {
   if (e.target.closest("#imp-open")) return checkUpdate();
+  if (e.target.closest("#local-refresh")) return localRefresh();
   const tab = e.target.closest("[data-view]");
   if (tab){ $("#q-global").value = ""; state.gq = ""; return show(tab.dataset.view); }
   if (e.target.closest("[data-close]")) return closeModal();

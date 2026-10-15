@@ -28,6 +28,37 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
 边界不变：主机关机/休眠期间无法读取磁盘，线上数据停留在最后一次发布；
 私密收藏夹仍靠 `export.py` 的 `EXCLUDE_FOLDER_IDS` 把关（自动发布会如实推出去）。
 
+## 本机刷新（在网页上一键让主机现拉现发）
+
+「检查更新」只能拉**已发布**的数据；「本机刷新」则反过来——把按钮做成指令，
+让数据主机当场从 B站/Steam/Bangumi 拉最新数据并自动发布，页面随后自动热替换：
+
+```
+线上页(你的浏览器) → fetch 127.0.0.1 触发三服务同步 → 各服务已有钩子自动推 GitHub
+                    → 页面轮询检查更新 → 热替换重渲染
+```
+
+- 三服务**没在跑**时，页面会跳 `suki-refresh:` 自定义协议把它们静默拉起（处理器
+  `bili_link.py` 只拉服务、不触发同步，动作串白名单，日志 `bili_link.log`）。
+- **一次性安装**（当前用户注册表，无需管理员；在 cmd 里逐条执行或存成 bat）：
+
+  ```bat
+  reg add HKCU\Software\Classes\suki-refresh /ve /d "URL:suki 本机刷新" /f
+  reg add HKCU\Software\Classes\suki-refresh /v "URL Protocol" /d "" /f
+  reg add "HKCU\Software\Classes\suki-refresh\shell\open\command" /ve /d "\"<pythonw.exe 完整路径>\" \"<本目录完整路径>\bili_link.py\" \"%%1\"" /f
+  ```
+
+  验证：Win+R 输入 `suki-refresh:refresh`；卸载：`reg delete HKCU\Software\Classes\suki-refresh /f`
+- 首次使用浏览器会问两次：**本地网络访问权限**（线上页访问 127.0.0.1 需允许）+
+  **打开 suki-refresh?**（可勾选始终允许）。之后服务常驻，纯静默。
+- **安全放行面**：三个服务只对 `https://x-suki.github.io` 放行各自的触发/探活端点
+  （B站 status/progress/refresh · 游戏 ping/recent · 番剧 ping/refresh_all）；
+  **数据端点（含 B站私密收藏夹）跨源一律不可读**，`file://` 的 null 源也不放行——
+  本机刷新只在线上站可用，file:// 直开只影响"看"，不影响数据。换设备（手机等）
+  打开时探测不到主机服务，会明确提示而不是误触发。
+- 已知边界：GitHub API 检查更新有 60s 缓存，同步完成后页面最多再等约 1 分钟才见到新版；
+  浏览器"本地网络访问"机制（Chrome/Edge LNA）仍在演进，若将来收紧，按钮会探测失败并给出引导。
+
 顶部搜索框可跨三板块搜全部内容（标题/UP主/简介/笔记/游戏详情等）；各板块内的搜索框只搜本板块。
 快捷键：`/` 聚焦当前板块搜索框 · `Esc` 关弹窗/清空 · `1~4` 切换 总览/视频/番剧/游戏。
 视频卡片上的**笔记条可点击**，弹窗查看全文（含图片）；番剧/游戏卡片点击进详情弹窗，游戏笔记里的截图直接内嵌显示。
@@ -38,6 +69,7 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
 |---|---|
 | `export.py` | 导出器：读源项目数据 → 生成 `data.js` + 封面/截图副本 |
 | `index.html` | 站点本体（手写，不参与生成，改样式直接编辑它） |
+| `bili_link.py` | `suki-refresh:` 协议处理器（「本机刷新」拉起本机服务，见上文；`bili_link.log` 是它的日志） |
 | `data.js` | 生成物：`window.STATIC_DATA = {...}`（用 `<script>` 而非 fetch 加载，兼容 file://） |
 | `version.json` | 生成物：`{generated_at}` 轻量版本标记，页面「检查更新」先拉它对比再决定是否下载 data.js |
 | `covers/anime/` `covers/game/` | 生成物：封面副本（游戏封面命名 = URL 的 md5，与 Game Note `/img` 端点同规则） |
