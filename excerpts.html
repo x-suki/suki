@@ -393,7 +393,6 @@
   <button id="miExport">导出备份(JSON)</button>
   <button id="miImport">导入备份(JSON)</button>
   <hr>
-  <button id="miSample">载入示例数据</button>
   <button id="miUnpin">释放所有固定节点</button>
   <hr>
   <button id="miClear" class="danger">清空所有数据</button>
@@ -490,8 +489,7 @@
     <h2>摘抄星图</h2>
     <p>把读过的句子摘录下来,书籍、主题与摘抄会自动织成一张关系云图——每一句话都是一颗星,共鸣越多,星座越亮。</p>
     <div class="row">
-      <button class="btn primary" id="emptySample">载入示例数据</button>
-      <button class="btn" id="emptyAdd">手动添加第一条</button>
+      <button class="btn primary" id="emptyAdd">手动添加第一条</button>
     </div>
   </div>
 </div>
@@ -586,35 +584,6 @@ function derive(src) {
     }
   }
   return { books, tags };
-}
-
-/* ---------- 示例数据 ---------- */
-const SAMPLES = [
-  { text: '人是为活着本身而活着的,而不是为了活着之外的任何事物所活着。', book: '活着', author: '余华', tags: ['生活', '命运'], note: '整本书的分量都压在这一句里。' },
-  { text: '生命从来不曾离开过孤独而独立存在。无论是我们出生、我们成长、我们相爱还是我们成功失败,直到最后的最后,孤独犹如影子一样存在于生命一隅。', book: '百年孤独', author: '加西亚·马尔克斯', tags: ['孤独', '人生'] },
-  { text: '过去都是假的,回忆是一条没有归途的路,以往的一切春天都无法复原。', book: '百年孤独', author: '加西亚·马尔克斯', tags: ['时间', '孤独'] },
-  { text: '真正重要的东西,用眼睛是看不见的,要用心去看。', book: '小王子', author: '圣埃克苏佩里', tags: ['本质', '爱'] },
-  { text: '你在你的玫瑰身上耗费的时间,使得你的玫瑰变得如此重要。', book: '小王子', author: '圣埃克苏佩里', tags: ['爱', '时间'], note: '驯养,说到底是付出时间。' },
-  { text: '满地都是六便士,他却抬头看见了月亮。', book: '月亮与六便士', author: '毛姆', tags: ['理想', '自由'] },
-  { text: '婚姻是一座围城,城外的人想冲进去,城里的人想逃出来。', book: '围城', author: '钱钟书', tags: ['婚姻', '人生'] },
-  { text: '希望本是无所谓有,无所谓无的。这正如地上的路;其实地上本没有路,走的人多了,也便成了路。', book: '呐喊', author: '鲁迅', tags: ['希望', '人生'] },
-  { text: '我愿意深深地扎入生活,吮尽生活的骨髓,过得扎实,简单。', book: '瓦尔登湖', author: '梭罗', tags: ['生活', '自然'] },
-  { text: '生如夏花之绚烂,死如秋叶之静美。', book: '飞鸟集', author: '泰戈尔', tags: ['生命', '美'] },
-  { text: '死并非生的对立面,而作为生的一部分永存。', book: '挪威的森林', author: '村上春树', tags: ['生死', '孤独'] },
-  { text: '他不过是一个自私的男人,她不过是一个自私的女人。在这个兵荒马乱的时代,个人主义者是无处容身的,可总有地方容得下一对平凡的夫妻。', book: '倾城之恋', author: '张爱玲', tags: ['婚姻', '人性'], note: '一座城的倾覆成全一段婚姻,苍凉又圆满。' },
-  { text: '登上顶峰的斗争本身足以充实人的心灵。应当想象西西弗是幸福的。', book: '西西弗神话', author: '加缪', tags: ['命运', '勇气'] },
-];
-function loadSamples() {
-  const base = Date.now();
-  SAMPLES.forEach((s, i) => {
-    const e = normalizeExcerpt(s);
-    e.id = uid();
-    e.createdAt = new Date(base - (SAMPLES.length - i) * 86400000).toISOString();
-    state.excerpts.push(e);
-  });
-  save();
-  rebuild(true);
-  toast('已载入示例数据,可随时在菜单中清空');
 }
 
 /* ============================================================
@@ -1644,7 +1613,6 @@ document.addEventListener('pointerdown', (e) => {
 });
 $('miExport').addEventListener('click', () => { toggleMenu(false); exportJson(); });
 $('miImport').addEventListener('click', () => { toggleMenu(false); $('fileInput').click(); });
-$('miSample').addEventListener('click', () => { toggleMenu(false); loadSamples(); });
 $('miUnpin').addEventListener('click', () => {
   toggleMenu(false);
   for (const n of G.nodes) { n.pinned = false; n.fixed = false; }
@@ -1689,7 +1657,6 @@ $('inBook').addEventListener('change', () => {
 $('zoomIn').addEventListener('click', () => { if (!splitMode) zoomAt(1.28, W / 2, H / 2); });
 $('zoomOut').addEventListener('click', () => { if (!splitMode) zoomAt(1 / 1.28, W / 2, H / 2); });
 $('zoomFit').addEventListener('click', () => { if (!splitMode) fitView(); });
-$('emptySample').addEventListener('click', loadSamples);
 $('emptyAdd').addEventListener('click', () => openEdit());
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
@@ -1720,14 +1687,13 @@ rebuild(true);
   renderTabbar();
 }
 
-/* 测试辅助: ?sample=1 载入示例; ?ui=list|detail|add|menu 打开对应界面; ?book=书名 直进该书星图面; ?notrans=1 禁用过渡(截图用) */
+/* 测试辅助: ?ui=list|detail|add|menu 打开对应界面; ?book=书名 直进该书星图面; ?notrans=1 禁用过渡(截图用) */
 const qs = new URLSearchParams(location.search);
 if (qs.get('notrans') === '1') {
   const st = document.createElement('style');
   st.textContent = '*{transition:none !important;animation:none !important;}';
   document.head.appendChild(st);
 }
-if (qs.get('sample') === '1' && !state.excerpts.length) loadSamples();
 const tbk = qs.get('tabs'); // 测试钩子:?tabs=书A,书B 预开多页;?split=1 直接同屏;?newtab=1 同屏下再开一页(回归卡死)
 if (tbk && state.excerpts.length) for (const name of tbk.split(',').filter(Boolean).slice(0, 3)) buildTab(createTab(name));
 if (qs.get('split') === '1' && tabs.length > 1) toggleSplit(true);
