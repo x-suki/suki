@@ -176,6 +176,7 @@ svg.ic{width:13px;height:13px;vertical-align:-2px;fill:none;stroke:currentColor;
   <section id="v-bili" hidden></section>
   <section id="v-anime" hidden></section>
   <section id="v-game" hidden></section>
+  <section id="v-excerpt" hidden><iframe id="excerpt-frame" data-src="excerpts.html" title="摘抄星图" style="width:100%;height:calc(100vh - 120px);border:1px solid #333;border-radius:12px;background:#0d0d0d"></iframe></section>
   <section id="v-search" hidden></section>
 </main>
 <div id="imp-msg" hidden></div>
@@ -681,17 +682,18 @@ function renderSearch(){
 
 /* ---------- 视图切换与事件 ---------- */
 function renderTabs(){
-  const t = [["overview","总览",""],["bili","视频收藏",BILI?BILI.total:""],["anime","番剧",ANIME?ANIME.works.length:""],["game","游戏",GAME?GAME.library.length+GAME.backlog.length:""]];
+  const t = [["overview","总览",""],["bili","视频收藏",BILI?BILI.total:""],["anime","番剧",ANIME?ANIME.works.length:""],["game","游戏",GAME?GAME.library.length+GAME.backlog.length:""],["excerpt","摘抄",""]];
   $("#tabs").innerHTML = t.map(([v,l,n]) =>
     `<button data-view="${v}" class="${state.view===v?"on":""}">${l}${n!==""?` <span style="opacity:.55">${n}</span>`:""}</button>`).join("");
 }
 function show(view){
   state.view = view;
-  for (const v of ["overview","bili","anime","game","search"]) $("#v-"+v).hidden = v !== view;
+  for (const v of ["overview","bili","anime","game","excerpt","search"]) $("#v-"+v).hidden = v !== view;
   if (view==="overview") renderOverview();
   if (view==="bili"){ renderBili(); ANIME_IDX=[]; GAME_IDX=[]; }
   if (view==="anime") renderAnime();
   if (view==="game") renderGame();
+  if (view==="excerpt"){ const f=$("#excerpt-frame"); if (f && !f.src) f.src = f.dataset.src; }   /* 首次进入才加载,平时不占资源 */
   if (view==="search") renderSearch();
   renderTabs();
   window.scrollTo(0,0);
@@ -731,8 +733,8 @@ document.addEventListener("keydown", e => {
   if (e.key === "/"){ e.preventDefault();
     const q = $("#v-"+state.view).querySelector("input[type=search]");
     if (q) q.focus(); return; }
-  const idx = ["1","2","3","4"].indexOf(e.key);
-  if (idx >= 0) show(["overview","bili","anime","game"][idx]);
+  const idx = ["1","2","3","4","5"].indexOf(e.key);
+  if (idx >= 0) show(["overview","bili","anime","game","excerpt"][idx]);
 });
 
 /* ---------- 启动 ---------- */
