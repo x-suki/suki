@@ -1,8 +1,9 @@
 # Static Access · suki（静态站）
 
-把三个本地项目的数据汇成一份**纯静态、只读**的站点（代号 **suki**，正式名待定）：
-B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、搜索、筛选和详情弹窗。
-另有「摘抄」页签：内嵌自包含的摘抄星图工具页（数据在浏览器本地，不经导出器，见文件说明）。
+把四个本地项目的数据汇成一份**纯静态、只读**的站点（代号 **suki**，正式名待定）：
+B站收藏 / Anime Note 番剧书架 / Game Note 游戏库 / Luna Library 摘抄，带笔记展示、搜索、筛选和详情弹窗。
+摘抄与其他三源走同一条发布管线：本地服务（`../Luna Library/server.py`）编辑即落盘 `excerpts.json` 并自动发布；
+线上「摘抄」页签是**只读镜像**，要录入/编辑请在本机双击 `../Luna Library/启动摘抄服务.bat`。
 双击 `index.html` 即可打开（file:// 直开可用），
 整个文件夹也可以原样发布到 GitHub Pages / Cloudflare Pages 等任意静态托管。
 
@@ -14,6 +15,8 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
 3. **页内更新**：页脚「检查更新」——经 GitHub API 拉最新 data.js、页面热替换，无需重开页面
    （走 api.github.com 绕开 CDN 缓存，推送后即可拉到；未认证限额 60 次/时/IP，个人使用足够）
 4. **仅本地重新导出不发布**：双击 `重新生成.bat`
+5. **编辑摘抄**：双击 `../Luna Library/启动摘抄服务.bat`——本地编辑页 `http://127.0.0.1:8355`，
+   保存即写 `excerpts.json` 并自动发布到本站（线上摘抄页随「检查更新」见到新数据）
 
 ## 自动发布（已启用，事件驱动）
 
@@ -23,6 +26,8 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
 - **Bili Project**：页内同步成功后（含 3 小时过期自动刷新），立即发布
 - **Game Note**：同步资料页、笔记/链接增删改、上传截图、待玩区变更成功后，立即发布
 - **Anime Note**：任何成功的写请求（增删改作品/笔记/媒体/设置）后，3 分钟防抖合并再发布
+- **Luna Library（摘抄）**：本地服务 `server.py` 里摘抄保存成功落盘后立即通知（服务侧 30s 节流 +
+  notify_push 3 分钟防抖合并）
 
 页面侧仍是页脚「检查更新」：从 GitHub 拉最新发布数据热替换。
 手动兜底：双击 `同步数据.bat`（与自动触发完全同一套导出+推送）。
@@ -70,9 +75,9 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
 |---|---|
 | `export.py` | 导出器：读源项目数据 → 生成 `data.js` + 封面/截图副本 |
 | `index.html` | 站点本体（手写，不参与生成，改样式直接编辑它） |
-| `excerpts.html` | 摘抄星图页（自包含工具页，数据存浏览器 localStorage，**不经 export.py 生成**；手工副本，源件在 `../Luna Library/摘抄星图.html`，改版需两边同步；顶栏「摘抄」页签内嵌，首次点开才加载） |
+| `excerpts.html` | 摘抄星图页（自包含工具页；线上为**只读镜像**，读 `data.js` 的 `excerpt` 键；编辑走 `../Luna Library/启动摘抄服务.bat` 的本地服务。手工副本，源件在 `../Luna Library/摘抄星图.html`，改版需两边同步——唯一差异是 data.js 引用路径一行；顶栏「摘抄」页签内嵌，首次点开才加载） |
 | `bili_link.py` | `suki-refresh:` 协议处理器（「本机刷新」拉起本机服务，见上文；`bili_link.log` 是它的日志） |
-| `data.js` | 生成物：`window.STATIC_DATA = {...}`（用 `<script>` 而非 fetch 加载，兼容 file://） |
+| `data.js` | 生成物：`window.STATIC_DATA = {...}`（用 `<script>` 而非 fetch 加载，兼容 file://；`excerpt` 键来自 Luna Library 的 `excerpts.json`） |
 | `version.json` | 生成物：`{generated_at}` 轻量版本标记，页面「检查更新」先拉它对比再决定是否下载 data.js |
 | `covers/anime/` `covers/game/` | 生成物：封面副本（游戏封面命名 = URL 的 md5，与 Game Note `/img` 端点同规则） |
 | `gmedia/` | 生成物：游戏笔记里内嵌的截图（源文件在 Game Note `data/media/`） |
@@ -88,6 +93,8 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库，带笔记展示、�
   `EXCLUDE_FOLDER_IDS` 再重新导出。
 - 站点内**没有任何凭据**（SESSDATA / Steam 登录态都不在此目录），数据本身只含收藏与笔记。
 - 失效视频、UP主名、笔记全文都在导出数据里，发布即公开，自行斟酌。
+- **摘抄原文（含心得）随 `data.js` 公开**（第四源 Luna Library `excerpts.json`），录入时自行斟酌；
+  摘抄的本地服务接口无跨域放行（只服务同源页面），线上访客改不了任何数据。
 - `同步数据.bat` 会把导出数据直接推到公开仓库——发布前确认 `export.py` 顶部
   `EXCLUDE_FOLDER_IDS` 已排除私密收藏夹（脚本输出里也有提醒）。
 

@@ -523,6 +523,12 @@ async function pullLatest(apiUrl){
   _flat = null;
   $("#site-sub").textContent = BILI && BILI.user ? "@" + BILI.user.mid : "";
   show(state.view);
+  /* 摘抄镜像同步：iframe 已加载则把新发布的摘抄推进去（excerpts.html 只读模式热更新） */
+  try {
+    const ef = $("#excerpt-frame");
+    if (ef && ef.contentWindow && ef.contentWindow.excerptDataUpdate)
+      ef.contentWindow.excerptDataUpdate((ND.excerpt || {}).excerpts || []);
+  } catch (e) { /* 跨源/未加载等情况一律不阻塞主流程 */ }
   return {fresh, applied: true};
 }
 

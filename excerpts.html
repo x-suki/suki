@@ -340,6 +340,12 @@
     .panel { width: 100vw; }
     .legend .hint { display: none; }
   }
+  /* 只读镜像(无本地服务):隐藏一切增删改入口 */
+  body[data-readonly="true"] #btnAdd,
+  body[data-readonly="true"] #btnMore,
+  body[data-readonly="true"] #emptyAdd { display: none; }
+  #emptyState .ro-hint { display: none; margin-bottom: 22px; font-size: 13px; line-height: 1.8; color: var(--text-muted); }
+  body[data-readonly="true"] #emptyState .ro-hint { display: block; }
 </style>
 </head>
 <body data-empty="true">
@@ -491,6 +497,7 @@
     <div class="row">
       <button class="btn primary" id="emptyAdd">手动添加第一条</button>
     </div>
+    <p class="ro-hint">当前是只读镜像,还没有已发布的摘抄。在本机 Luna Library 目录双击「启动摘抄服务.bat」,即可录入与编辑(编辑会落盘并自动发布到这里)。</p>
   </div>
 </div>
 
@@ -501,15 +508,15 @@
 <datalist id="dlTags"></datalist>
 <input type="file" id="fileInput" accept=".json,application/json" hidden>
 
+<script src="data.js"></script>
 <script>
 'use strict';
 /* ============================================================
  * 摘抄星图 · 书籍摘抄关系云图
- * 单文件 · 零依赖 · localStorage 持久化
+ * 单文件 · 零依赖 · 数据经发布管线:本地服务编辑落盘(自动发布)/ 无服务时只读镜像
  * ============================================================ */
 
 /* ---------- 常量与工具 ---------- */
-const LS_KEY = 'excerpt-cloud-v1';
 const C = {
   page: '#0d0d0d', surface: '#1a1a19',
   text: '#ffffff', text2: '#c3c2b7', muted: '#898781',
@@ -534,17 +541,46 @@ function el(tag, cls, text) {
   return n;
 }
 
-/* ---------- 数据层 ---------- */
+/* ---------- 数据层 ----------
+ * 双模式(启动时探测一次):
+ *   editor —— 本地摘抄服务(http://127.0.0.1:8355, server.py)可达:增删改经 PUT 全量写回
+ *             excerpts.json,服务端落盘后经钩子自动发布到 suki;
+ *   viewer —— 只读镜像:展示发布数据(window.STATIC_DATA.excerpt,来自 data.js),
+ *             无任何写路径;线上站与 file:// 直开都是此模式。
+ * localStorage 不再存数据——真相在磁盘 excerpts.json 与发布管线里。 */
 let state = { excerpts: [] };
+let editorMode = false;
 
-function load() {
+function publishedExcerpts() {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return;
-    const d = JSON.parse(raw);
-    if (Array.isArray(d.excerpts)) state.excerpts = d.excerpts.map(normalizeExcerpt).filter(Boolean);
-  } catch (e) { console.warn('读取存档失败', e); }
+    const a = window.STATIC_DATA && window.STATIC_DATA.excerpt && window.STATIC_DATA.excerpt.excerpts;
+    return Array.isArray(a) ? a.map(normalizeExcerpt).filter(Boolean) : [];
+  } catch (e) { return []; }
 }
+async function bootStore() {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 1500);
+    const r = await fetch('/api/excerpts', { signal: ctl.signal });
+    clearTimeout(timer);
+    if (r.ok) {
+      const d = await r.json();
+      if (d && Array.isArray(d.excerpts)) {
+        editorMode = true;
+        state.excerpts = d.excerpts.map(normalizeExcerpt).filter(Boolean);
+        return;
+      }
+    }
+  } catch (e) { /* 无本地服务 → 只读镜像 */ }
+  state.excerpts = publishedExcerpts();
+}
+/* 只读镜像热更新:父页面(suki index.html)「检查更新」拉到新发布数据后推进来 */
+window.excerptDataUpdate = function (arr) {
+  if (editorMode || !Array.isArray(arr)) return;
+  state.excerpts = arr.map(normalizeExcerpt).filter(Boolean);
+  rebuild(false); // 收尾自带 updateStats/refreshDatalists/renderList
+  toast('摘抄已更新到最新发布版');
+};
 function normalizeExcerpt(e) {
   if (!e || typeof e.text !== 'string' || typeof e.book !== 'string') return null;
   return {
@@ -560,10 +596,17 @@ function normalizeExcerpt(e) {
 let saveTimer = null;
 function save() {
   markTabsDirty(); // 数据变更:非活动星图页标脏,切回时按旧布局重建
+  if (!editorMode) return; // 只读镜像:没有写路径
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ v: 1, excerpts: state.excerpts })); }
-    catch (e) { toast('保存失败:浏览器存储不可用'); }
+  saveTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/excerpts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ v: 1, excerpts: state.excerpts }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+    } catch (e) { toast('保存失败:本地摘抄服务未响应'); }
   }, 250);
 }
 
@@ -1320,11 +1363,14 @@ function openDetail(n) {
     const acts = el('div', 'panel-actions');
     const bLoc = el('button', 'btn', '在图中定位');
     bLoc.onclick = () => centerOn(n);
-    const bEdit = el('button', 'btn', '编辑');
-    bEdit.onclick = () => openEdit(e);
-    const bDel = el('button', 'btn danger', '删除');
-    bDel.onclick = () => confirmDelete(e);
-    acts.append(bLoc, bEdit, bDel);
+    acts.appendChild(bLoc);
+    if (editorMode) {
+      const bEdit = el('button', 'btn', '编辑');
+      bEdit.onclick = () => openEdit(e);
+      const bDel = el('button', 'btn danger', '删除');
+      bDel.onclick = () => confirmDelete(e);
+      acts.append(bEdit, bDel);
+    }
     body.appendChild(acts);
   } else {
     // 书籍 / 主题
@@ -1345,7 +1391,7 @@ function openDetail(n) {
     const acts = el('div', 'panel-actions');
     const bLoc = el('button', 'btn', '在图中定位');
     bLoc.onclick = () => centerOn(n);
-    if (isBook) {
+    if (isBook && editorMode) {
       const bEdit = el('button', 'btn', '为本书添加摘抄');
       bEdit.onclick = () => openEdit(null, n.ref.title, n.ref.author || '');
       acts.appendChild(bEdit);
@@ -1374,7 +1420,7 @@ function renderList() {
     .filter(x => x.items.length)
     .sort((a, z) => Math.max(...z.items.map(i => i.createdAt)) - Math.max(...a.items.map(i => i.createdAt)));
   if (!entries.length) {
-    body.appendChild(el('p', null, q ? '没有匹配的摘抄' : '还没有摘抄,点右上角「添加摘抄」开始')).style.cssText = 'color:var(--text-muted);font-size:13px;padding:14px 2px;';
+    body.appendChild(el('p', null, q ? '没有匹配的摘抄' : (editorMode ? '还没有摘抄,点右上角「添加摘抄」开始' : '暂无已发布的摘抄'))).style.cssText = 'color:var(--text-muted);font-size:13px;padding:14px 2px;';
     return;
   }
   let total = 0;
@@ -1447,6 +1493,7 @@ function refreshDatalists() {
 /* ---------- 添加 / 编辑 ---------- */
 let editingId = null;
 function openEdit(e, presetBook, presetAuthor) {
+  if (!editorMode) return; // 只读镜像:无编辑
   editingId = e ? e.id : null;
   $('editTitle').textContent = e ? '编辑摘抄' : '添加摘抄';
   $('inText').value = e ? e.text : '';
@@ -1511,6 +1558,7 @@ $('confirmCancel').addEventListener('click', closeConfirm);
 $('confirmOverlay').addEventListener('pointerdown', (e) => { if (e.target === $('confirmOverlay')) closeConfirm(); });
 
 function confirmDelete(e) {
+  if (!editorMode) return; // 只读镜像:无删除
   showConfirm('删除这条摘抄?', truncate(e.text, 40), '删除', () => {
     state.excerpts = state.excerpts.filter(x => x.id !== e.id);
     save();
@@ -1535,6 +1583,7 @@ $('fileInput').addEventListener('change', (ev) => {
   const f = ev.target.files[0];
   ev.target.value = '';
   if (!f) return;
+  if (!editorMode) { toast('只读镜像:不支持导入'); return; }
   const reader = new FileReader();
   reader.onload = () => {
     try {
@@ -1621,6 +1670,7 @@ $('miUnpin').addEventListener('click', () => {
   toast('已释放所有节点');
 });
 $('miClear').addEventListener('click', () => {
+  if (!editorMode) { toggleMenu(false); return; }
   toggleMenu(false);
   showConfirm('清空所有数据?', '将删除全部 ' + state.excerpts.length + ' 条摘抄,此操作不可撤销(建议先导出备份)。', '清空', () => {
     state.excerpts = [];
@@ -1676,17 +1726,6 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('resize', resize);
 
 /* ---------- 启动 ---------- */
-load();
-resize();
-rebuild(true);
-/* 标签页:首屏即第 1 页 */
-{
-  const first = createTab(null);
-  activeTabId = first.id;
-  first.snap = snapGraph();
-  renderTabbar();
-}
-
 /* 测试辅助: ?ui=list|detail|add|menu 打开对应界面; ?book=书名 直进该书星图面; ?notrans=1 禁用过渡(截图用) */
 const qs = new URLSearchParams(location.search);
 if (qs.get('notrans') === '1') {
@@ -1694,19 +1733,33 @@ if (qs.get('notrans') === '1') {
   st.textContent = '*{transition:none !important;animation:none !important;}';
   document.head.appendChild(st);
 }
-const tbk = qs.get('tabs'); // 测试钩子:?tabs=书A,书B 预开多页;?split=1 直接同屏;?newtab=1 同屏下再开一页(回归卡死)
-if (tbk && state.excerpts.length) for (const name of tbk.split(',').filter(Boolean).slice(0, 3)) buildTab(createTab(name));
-if (qs.get('split') === '1' && tabs.length > 1) toggleSplit(true);
-if (qs.get('newtab') === '1') newTab();
-if (state.excerpts.length) {
-  const ui = qs.get('ui');
-  if (ui === 'list') openList();
-  else if (ui === 'detail') { const n = G.nodes.find(x => x.type === 'excerpt'); if (n) { selectNode(n); centerOn(n); } }
-  else if (ui === 'add') openEdit();
-  else if (ui === 'menu') toggleMenu(true);
-  const bk = qs.get('book');
-  if (bk) enterBookView(bk);
-}
+(async () => {
+  await bootStore(); // 探测本地服务:可达=editor(写 excerpts.json);不可达=viewer(读发布数据)
+  if (!editorMode) document.body.dataset.readonly = 'true';
+  resize();
+  rebuild(true);
+  /* 标签页:首屏即第 1 页 */
+  {
+    const first = createTab(null);
+    activeTabId = first.id;
+    first.snap = snapGraph();
+    renderTabbar();
+  }
+  /* 测试钩子:?tabs=书A,书B 预开多页;?split=1 直接同屏;?newtab=1 同屏下再开一页(回归卡死) */
+  const tbk = qs.get('tabs');
+  if (tbk && state.excerpts.length) for (const name of tbk.split(',').filter(Boolean).slice(0, 3)) buildTab(createTab(name));
+  if (qs.get('split') === '1' && tabs.length > 1) toggleSplit(true);
+  if (qs.get('newtab') === '1') newTab();
+  if (state.excerpts.length) {
+    const ui = qs.get('ui');
+    if (ui === 'list') openList();
+    else if (ui === 'detail') { const n = G.nodes.find(x => x.type === 'excerpt'); if (n) { selectNode(n); centerOn(n); } }
+    else if (ui === 'add') openEdit();
+    else if (ui === 'menu') toggleMenu(true);
+    const bk = qs.get('book');
+    if (bk) enterBookView(bk);
+  }
+})();
 </script>
 </body>
 </html>
