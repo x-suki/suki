@@ -104,6 +104,9 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
 .card.dead{opacity:.45}
 .card.dead .t{text-decoration:line-through}
 .card.dead:hover{opacity:.75}
+/* 随机看定位高亮：青蓝描边区别于"新"角标的粉色，任何交互后消失 */
+.card.spotlight{border-color:rgba(102,204,255,.7);background:rgba(102,204,255,.08);
+  box-shadow:0 0 0 3px rgba(102,204,255,.22)}
 .stars{color:var(--st-hold);letter-spacing:1px}
 
 /* 弹窗 */
@@ -144,7 +147,8 @@ svg.ic{width:13px;height:13px;vertical-align:-2px;fill:none;stroke:currentColor;
 #theme-toggle .ic{width:14px;height:14px;vertical-align:-3px}
 #imp-msg{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:60;
   background:var(--surface2);border:1px solid var(--accent);color:var(--accent);
-  border-radius:999px;padding:6px 16px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+  border-radius:999px;padding:6px 16px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.4);
+  max-width:min(80vw,560px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .empty{color:var(--muted);padding:40px 0;text-align:center}
 
 /* 移动端顶部三行：标题(+右侧按钮) / 标签通栏横滑 / 搜索通栏；电脑端(>820px)不受影响 */
@@ -205,6 +209,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g,
 const ICON_NOTE = '<svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg>';
 const ICON_SUN = '<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
 const ICON_MOON = '<svg class="ic" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+const ICON_SHUFFLE = '<svg class="ic" viewBox="0 0 24 24"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>';
 
 /* ---------- 格式化 ---------- */
 const fmtPlay = p => p >= 1e4 ? (p/1e4).toFixed(1).replace(/\.0$/,"") + "万" : String(p||0);
@@ -344,6 +349,7 @@ function renderBili(){
       </select>
       <label class="tgl"><input type="checkbox" id="n-bili" ${s.noted?"checked":""}>只看有笔记</label>
       <label class="tgl"><input type="checkbox" id="d-bili" ${s.hideDead?"checked":""}>隐藏失效</label>
+      <button class="hbtn" id="btn-random" title="随机打开一个当前列表里的视频（快捷键 R）">${ICON_SHUFFLE} 随机看</button>
       <span class="count">${items.length} 条</span></div>
     <div class="grid v">${items.map(videoCard).join("") || `<div class="empty">没有匹配的内容</div>`}</div>`;
   $("#sort-bili").value = s.sort;
@@ -351,6 +357,34 @@ function renderBili(){
   qEl.addEventListener("input", ()=>{ s.q = qEl.value; refreshList("bili"); });
   $("#n-bili").addEventListener("change", e=>{ s.noted = e.target.checked; renderBili(); });
   $("#d-bili").addEventListener("change", e=>{ s.hideDead = e.target.checked; renderBili(); });
+  $("#btn-random").addEventListener("click", randomWatch);
+}
+
+/* 随机看（同 Bili Project）：从当前过滤列表抽一个未失效视频新标签打开，
+   提示条报标题，并滚动定位到该卡片高亮；任何交互后高亮消失 */
+function randomWatch(){
+  const items = biliList().filter(i=>!i.dead);
+  if (!items.length) return setMsg("当前列表没有可打开的视频");
+  const pick = items[Math.random()*items.length|0];
+  setMsg(pick.title);
+  window.open(pick.link, "_blank", "noopener");
+  spotCard(pick);
+}
+let _spotEl = null;
+function clearSpot(){
+  for (const ev of ["pointerdown","keydown","wheel"]) document.removeEventListener(ev, clearSpot, true);
+  if (_spotEl){ _spotEl.classList.remove("spotlight"); _spotEl = null; }
+}
+function spotCard(it){
+  clearSpot();
+  /* 抽中项来自 biliList() 本身，必然在当前网格里，按引用定位即可 */
+  const idx = biliList().indexOf(it);
+  const el = idx < 0 ? null : $("#v-bili .grid").children[idx];
+  if (!el) return;
+  _spotEl = el;
+  el.classList.add("spotlight");
+  el.scrollIntoView({behavior:"smooth", block:"center"});
+  for (const ev of ["pointerdown","keydown","wheel"]) document.addEventListener(ev, clearSpot, true);
 }
 
 /* ---------- 番剧 ---------- */
@@ -736,6 +770,10 @@ document.addEventListener("keydown", e => {
     return;
   }
   if (typing || !$("#overlay").hidden) return;
+  /* R 随机看：仅视频收藏视图内响应（无修饰键，避免与浏览器刷新快捷键打架） */
+  if (state.view === "bili" && BILI && !e.ctrlKey && !e.metaKey && !e.altKey && /^r$/i.test(e.key)){
+    e.preventDefault(); return randomWatch();
+  }
   if (e.key === "/"){ e.preventDefault();
     const q = $("#v-"+state.view).querySelector("input[type=search]");
     if (q) q.focus(); return; }
