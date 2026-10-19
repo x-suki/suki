@@ -906,10 +906,10 @@ function step() {
       if (d2 > 67600) continue;             // 260² 之外不计算
       if (d2 < 0.01) { d2 = 1; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
       const d = Math.sqrt(d2);
-      let f = (1700 * (n1.r + n2.r + 12)) / d2 * a;
+      let f = (1200 * (n1.r + n2.r + 12)) / d2 * a;           // 牛顿斥力(弱化:1700→1200),动态更温和
       const minD = n1.r + n2.r + 14;
-      if (d < minD) f += (minD - d) * 0.055;              // 碰撞推离
-      else if (d < minD + 8) f += (minD + 8 - d) * 0.05;  // 微弱斥力:不随 alpha 衰减,停稳后节点间仍留一圈细缝,不贴成重合
+      if (d < minD) f += (minD - d) * 0.055;                  // 碰撞推离
+      else if (d < minD + 36) f += (minD + 36 - d) * 0.00115; // 常驻微弱斥力:不分类型、不随 alpha 衰减,活动期任何节点对都温和互推;峰值力 <0.042,压在停稳阈值下
       const fx = dx / d * f, fy = dy / d * f;
       n1.vx -= fx; n1.vy -= fy; n2.vx += fx; n2.vy += fy;
     }
