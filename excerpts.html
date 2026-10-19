@@ -407,7 +407,7 @@
   <div class="row"><span class="dot circle" style="background:var(--book)"></span>书籍<span class="cnt" id="cntBook"></span></div>
   <div class="row"><span class="dot diamond" style="background:var(--tag)"></span>主题<span class="cnt" id="cntTag"></span></div>
   <div class="row"><span class="dot circle" style="background:var(--excerpt)"></span>摘抄<span class="cnt" id="cntEx"></span></div>
-  <div class="hint">拖动节点可固定位置,双击节点解除固定;双击空白处适配视图</div>
+  <div class="hint">拖动节点可固定位置,双击节点解除固定;双击空白处适配视图。节点大小:书籍随摘抄数、星图面内摘抄随字数增大</div>
 </div>
 
 <!-- 缩放 -->
@@ -842,12 +842,19 @@ function rebuild(fit, fresh, seed) {
       if (tn) G.edges.push({ s: n, t: tn, hub: 'tag' });
     }
   }
-  // 半径 = 度数
+  // 半径:书籍按持有摘抄数;摘抄在星图面内按字数(总览里恒为小星);主题按度数
   for (const e of G.edges) { e.s.deg++; e.t.deg++; }
   for (const n of G.nodes) {
-    if (n.type === 'excerpt') n.r = 4.5;
-    else if (n.type === 'book') n.r = clamp(7 + Math.sqrt(n.deg) * 3.2, 9, 23);
-    else n.r = clamp(6 + Math.sqrt(n.deg) * 2.6, 8, 18);
+    if (n.type === 'excerpt') {
+      if (G.bookView) {
+        const chars = Array.from(n.ref.text.replace(/\s+/g, '')).length;
+        n.r = clamp(3.6 + Math.sqrt(chars) * 0.62, 4.5, 15);
+      } else n.r = 4.5;
+    } else if (n.type === 'book') {
+      n.r = clamp(7 + Math.sqrt(n.ref.items.length) * 3.4, 9, 26);
+    } else {
+      n.r = clamp(6 + Math.sqrt(n.deg) * 2.6, 8, 18);
+    }
   }
 
   if (fresh) for (const n of G.nodes) { n.pinned = false; n.fixed = false; } // 星图面重新起盘,原固定标记随之失效
