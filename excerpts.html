@@ -908,7 +908,8 @@ function step() {
       const d = Math.sqrt(d2);
       let f = (1700 * (n1.r + n2.r + 12)) / d2 * a;
       const minD = n1.r + n2.r + 14;
-      if (d < minD) f += (minD - d) * 0.055;
+      if (d < minD) f += (minD - d) * 0.055;              // 碰撞推离
+      else if (d < minD + 8) f += (minD + 8 - d) * 0.05;  // 微弱斥力:不随 alpha 衰减,停稳后节点间仍留一圈细缝,不贴成重合
       const fx = dx / d * f, fy = dy / d * f;
       n1.vx -= fx; n1.vy -= fy; n2.vx += fx; n2.vy += fy;
     }
@@ -1192,6 +1193,25 @@ function zoomAt(factor, mx, my) {
 }
 
 /* ---------- 指针交互 ---------- */
+/* 拖放落位:把节点滑出与邻居的完全重叠(固定节点不受力,叠住的重叠物理解不开,只能落位时摆正) */
+function unstack(n0) {
+  for (let pass = 0; pass < 3; pass++) {
+    let hit = false;
+    for (const o of G.nodes) {
+      if (o === n0) continue;
+      let dx = n0.x - o.x, dy = n0.y - o.y, dd = Math.hypot(dx, dy);
+      if (dd < 0.01) { const a0 = Math.random() * 6.2832; dx = Math.cos(a0); dy = Math.sin(a0); dd = 1; }
+      const want = n0.r + o.r + 16;
+      if (dd < want) {
+        n0.x = o.x + dx / dd * want;
+        n0.y = o.y + dy / dd * want;
+        n0.fx = n0.x; n0.fy = n0.y;
+        hit = true;
+      }
+    }
+    if (!hit) return;
+  }
+}
 function toLocal(ev) { return { mx: ev.clientX, my: ev.clientY }; }
 function toWorld(mx, my) { return { x: (mx - G.view.ox) / G.view.k, y: (my - G.view.oy) / G.view.k }; }
 function nodeAt(mx, my) {
@@ -1256,7 +1276,9 @@ canvas.addEventListener('pointerup', (ev) => {
     if (G.downInfo && !G.downInfo.moved) {
       selectNode(G.dragNode);
     } else {
-      G.dragNode.pinned = true;
+      const n0 = G.dragNode;
+      unstack(n0);
+      n0.pinned = true;
       G.alpha = Math.max(G.alpha, 0.25);
       ensureLoop();
     }
