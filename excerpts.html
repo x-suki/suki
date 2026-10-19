@@ -163,6 +163,9 @@
     transition: background .15s, color .15s;
   }
   .iconbtn:hover { background: var(--surface-2); color: var(--text-primary); }
+  .iconbtn:disabled { opacity: 0.32; cursor: default; }
+  .iconbtn:disabled:hover { background: transparent; color: var(--text-secondary); }
+  .zoomctl .sep { height: 1px; background: var(--hairline); margin: 2px 4px; }
 
   /* ===== 提示气泡 ===== */
   #tooltip {
@@ -407,11 +410,15 @@
   <div class="row"><span class="dot circle" style="background:var(--book)"></span>书籍<span class="cnt" id="cntBook"></span></div>
   <div class="row"><span class="dot diamond" style="background:var(--tag)"></span>主题<span class="cnt" id="cntTag"></span></div>
   <div class="row"><span class="dot circle" style="background:var(--excerpt)"></span>摘抄<span class="cnt" id="cntEx"></span></div>
-  <div class="hint">拖动节点可固定位置,双击节点解除固定;双击空白处适配视图。节点大小:书籍随摘抄数、星图面内摘抄随字数增大</div>
+  <div class="hint">拖动节点可固定位置,双击节点解除固定(右下按钮可一键释放全部);双击空白处适配视图。节点大小:书籍随摘抄数、星图面内摘抄随字数增大</div>
 </div>
 
 <!-- 缩放 -->
 <div class="zoomctl">
+  <button class="iconbtn" id="unpinAll" aria-label="释放所有固定节点" title="释放所有固定节点">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>
+  </button>
+  <div class="sep"></div>
   <button class="iconbtn" id="zoomIn" aria-label="放大" title="放大">+</button>
   <button class="iconbtn" id="zoomOut" aria-label="缩小" title="缩小">−</button>
   <button class="iconbtn" id="zoomFit" aria-label="适配视图" title="适配视图">⌂</button>
@@ -1084,8 +1091,28 @@ function drawView(nodes, nodeById, edges, view, focus, selId, hovId, ctx2, w, h,
 let rendering = false;
 function render() {
   if (rendering) return;   // 重入保险(buildTab→fitView(false)→render 会重入同屏渲染)
+  syncUnpin();
   if (splitMode && tabs.length > 1) { rendering = true; try { renderSplit(); } finally { rendering = false; } return; }
   drawView(G.nodes, G.nodeById, G.edges, G.view, G.focus, G.selectedId, G.hoverId, ctx, W, H, 0);
+}
+
+/* 「释放所有固定节点」按钮:有固定节点才可点(计数缓存,避免每帧碰 DOM);同屏只读一律禁用 */
+let unpinLast = -1;
+function syncUnpin() {
+  const cnt = splitMode ? 0 : G.nodes.reduce((a, n) => a + ((n.fixed || n.pinned) ? 1 : 0), 0);
+  if (cnt === unpinLast) return;
+  unpinLast = cnt;
+  $('unpinAll').disabled = !cnt;
+}
+
+function releaseAllPins() {
+  const cnt = G.nodes.reduce((a, n) => a + ((n.fixed || n.pinned) ? 1 : 0), 0);
+  if (!cnt) { toast('当前没有固定节点'); return; }
+  for (const n of G.nodes) { n.pinned = false; n.fixed = false; }
+  G.alpha = 0.8;
+  ensureLoop();
+  syncUnpin();
+  toast('已释放 ' + cnt + ' 个固定节点');
 }
 
 /* 同屏模式:各标签页并排为竖条(至多 4 页),各自独立物理与视图;画布只读(交互暂停) */
@@ -1688,13 +1715,8 @@ document.addEventListener('pointerdown', (e) => {
 });
 $('miExport').addEventListener('click', () => { toggleMenu(false); exportJson(); });
 $('miImport').addEventListener('click', () => { toggleMenu(false); $('fileInput').click(); });
-$('miUnpin').addEventListener('click', () => {
-  toggleMenu(false);
-  for (const n of G.nodes) { n.pinned = false; n.fixed = false; }
-  G.alpha = 0.8;
-  ensureLoop();
-  toast('已释放所有节点');
-});
+$('unpinAll').addEventListener('click', () => { if (!splitMode) releaseAllPins(); });
+$('miUnpin').addEventListener('click', () => { toggleMenu(false); releaseAllPins(); });
 $('miClear').addEventListener('click', () => {
   if (!editorMode) { toggleMenu(false); return; }
   toggleMenu(false);
