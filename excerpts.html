@@ -300,15 +300,17 @@ try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dat
   .coll-item {
     display: flex; align-items: center; gap: 9px; padding: 9px 12px;
     border: 1px solid var(--hairline); border-radius: 10px; margin-bottom: 6px;
-    cursor: pointer; font-size: 13px; color: var(--text-secondary);
+    cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text-primary);
     transition: border-color .15s, background .15s, color .15s;
   }
   .coll-item:hover { border-color: var(--hoverline); background: var(--surface-2); }
-  .coll-item.on { border-color: var(--wash-line); color: var(--text-primary); background: var(--surface-2); }
-  .coll-item .hex { width: 9px; height: 10px; flex: none; background: var(--text-secondary);
+  .coll-item.on { border-color: var(--wash-line); background: var(--surface-2); }
+  .coll-item .hex { width: 9px; height: 10px; flex: none; background: var(--tag);
     clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
   .coll-item .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .coll-item .cnt { font-size: 11px; color: var(--text-muted); flex: none; }
+  .coll-item .cnt { font-size: 11px; font-weight: 400; color: var(--text-muted); flex: none; }
+  .coll-item .go { font-size: 13px; color: var(--text-muted); flex: none; transition: color .15s, transform .15s; }
+  .coll-item:hover .go { color: var(--text-primary); transform: translateX(2px); }
   .colladd { display: flex; gap: 8px; margin: 8px 0 14px; }
   .colladd input {
     flex: 1; min-width: 0; padding: 7px 11px;
@@ -355,8 +357,15 @@ try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dat
   .exlist-item .m { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
   .group-head { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }
   .group-head:first-child { margin-top: 8px; }
-  .group-head .tw { width: 11px; flex: none; font-size: 10px; color: var(--text-muted); text-align: center; transition: transform .18s; }
-  .group-head.folded .tw { transform: rotate(-90deg); }
+  .group-head .foldbtn {
+    width: 22px; height: 22px; flex: none; border: 1px solid var(--hairline); border-radius: 7px;
+    display: grid; place-items: center; background: transparent; color: var(--text-secondary);
+    font-size: 10px; line-height: 1;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .group-head:hover .foldbtn { background: var(--surface-2); color: var(--text-primary); border-color: var(--hoverline); }
+  .group-head .foldbtn b { font-weight: 400; transition: transform .18s; }
+  .group-head.folded .foldbtn b { transform: rotate(-90deg); }
   .group-head .t { font-size: 13.5px; font-weight: 650; color: var(--text-primary); }
   .group-head .a { font-size: 12px; color: var(--text-muted); }
   .group-head .n { font-size: 11px; color: var(--text-muted); margin-left: auto; }
@@ -459,6 +468,8 @@ try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dat
     .tabbtn { padding: 7px 12px; font-size: 13px; }
     .chip { padding: 7px 14px; font-size: 13px; }
     .coll-item { padding: 12px; }
+    .group-head .foldbtn { width: 28px; height: 28px; font-size: 12px; }
+    .coll-item .go { font-size: 15px; }
     .coll-crow .btn { padding: 8px 12px; }
     .menu button { padding: 12px 13px; }
   }
@@ -1802,7 +1813,7 @@ function renderList() {
       const nIn = [...books.values()].filter(b => c.books.some(bb => bookKey(bb) === bookKey(b.title))).length; // 现存书籍数(悬空成员不计)
       const on = listCollFilter && listCollFilter.id === c.id;
       const row = el('div', 'coll-item' + (on ? ' on' : ''));
-      row.append(el('i', 'hex'), el('span', 'nm', c.name), el('span', 'cnt', nIn + ' 本'));
+      row.append(el('i', 'hex'), el('span', 'nm', c.name), el('span', 'cnt', nIn + ' 本'), el('span', 'go', on ? '✕' : '›'));
       row.title = '在列表中只看此合集的书' + (on ? '(再点一次取消)' : '');
       row.onclick = () => { listCollFilter = on ? null : c; renderList(); };
       csec.appendChild(row);
@@ -1832,7 +1843,8 @@ function renderList() {
     gt.onclick = (ev) => { ev.stopPropagation(); enterBookView(b.title); };
     gt.addEventListener('mouseenter', (ev) => showTooltip({ type: 'book', ref: b }, ev.clientX, ev.clientY));
     gt.addEventListener('mouseleave', hideTooltip);
-    gh.append(el('span', 'tw', '▾'), gt, el('span', 'a', b.author || ''), el('span', 'n', items.length + ' 条'));
+    const fb = el('span', 'foldbtn'); fb.appendChild(el('b', null, '▾'));
+    gh.append(fb, gt, el('span', 'a', b.author || ''), el('span', 'n', items.length + ' 条'));
     gh.title = open ? '收起本书摘录' : '展开本书摘录';
     gh.onclick = () => { if (listExpanded.has(bk)) listExpanded.delete(bk); else listExpanded.add(bk); renderList(); };
     bsec.appendChild(gh);
