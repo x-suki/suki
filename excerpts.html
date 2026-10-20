@@ -234,6 +234,40 @@
   .chip i { width: 7px; height: 7px; border-radius: 2px; transform: rotate(45deg); background: var(--tag); }
   .chip.bookchip i { border-radius: 50%; transform: none; background: var(--book); }
   .chip.bookchip:hover { border-color: rgba(57,135,229,0.6); }
+  .chip i.hex { width: 9px; height: 10px; border-radius: 0; transform: none; background: var(--text-secondary);
+    clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
+  .chip.collchip.auto { border-style: dashed; color: var(--text-muted); }
+  .chip.collchip.auto i.hex { background: var(--text-muted); }
+  .chip.collchip.on { border-color: rgba(255,255,255,0.65); color: var(--text-primary); }
+  .chip .chipx { font-style: normal; margin-left: 1px; padding: 0 1px; color: var(--text-muted); }
+  .chip .chipx:hover { color: #e66767; }
+  .collrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline); }
+  .collrow-label { font-size: 11.5px; color: var(--text-muted); flex: none; }
+  .colladd { display: flex; gap: 8px; margin: 8px 0 14px; }
+  .colladd input {
+    flex: 1; min-width: 0; padding: 7px 11px;
+    background: var(--surface-2); color: var(--text-primary);
+    border: 1px solid var(--hairline); border-radius: 10px; font-size: 12.5px; outline: none;
+  }
+  .colladd input:focus { border-color: rgba(57,135,229,0.65); }
+  .coll-new { display: flex; gap: 8px; margin-bottom: 6px; }
+  .coll-new input {
+    flex: 1; min-width: 0; padding: 8px 12px;
+    background: var(--page); color: var(--text-primary);
+    border: 1px solid var(--hairline); border-radius: 10px; font-size: 13px; outline: none;
+  }
+  .coll-new input:focus { border-color: rgba(57,135,229,0.65); }
+  .coll-crow { display: flex; align-items: center; gap: 8px; padding: 9px 2px; border-bottom: 1px solid var(--hairline); font-size: 13px; }
+  .coll-crow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .coll-crow.auto .nm { color: var(--text-muted); }
+  .coll-crow .cnt { font-size: 11px; color: var(--text-muted); flex: none; }
+  .coll-badge { font-size: 10.5px; color: var(--text-muted); border: 1px solid var(--hairline); border-radius: 999px; padding: 1px 7px; flex: none; }
+  .coll-crow .btn { padding: 4px 10px; font-size: 12px; }
+  .coll-crow input {
+    flex: 1; min-width: 0; padding: 5px 9px;
+    background: var(--page); color: var(--text-primary);
+    border: 1px solid rgba(57,135,229,0.65); border-radius: 8px; font-size: 12.5px; outline: none;
+  }
   .note-label { font-size: 12px; color: var(--text-muted); margin: 16px 0 6px; }
   .note {
     font-size: 13.5px; line-height: 1.75; color: var(--text-secondary);
@@ -274,6 +308,7 @@
     align-items: center; justify-content: center; padding: 16px;
   }
   .overlay.open { display: flex; }
+  #confirmOverlay { z-index: 55; } /* 会从合集管理等弹窗之上弹出,须压住后者(同 z-index 时 DOM 靠后者在上) */
   .modal {
     width: min(580px, 100%); max-height: calc(100vh - 48px);
     overflow-y: auto;
@@ -402,6 +437,8 @@
   <hr>
   <button id="miUnpin">释放所有固定节点</button>
   <hr>
+  <button id="miColls">管理合集…</button>
+  <hr>
   <button id="miClear" class="danger">清空所有数据</button>
 </div>
 
@@ -493,6 +530,21 @@
   </div>
 </div>
 
+<!-- 合集管理弹窗 -->
+<div class="overlay" id="collOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="合集管理" style="width:min(480px,100%);">
+    <h3>合集管理</h3>
+    <div class="coll-new">
+      <input id="collNewName" list="dlColls" placeholder="新建合集,输入名称…" autocomplete="off">
+      <button class="btn primary" id="collNewBtn">新建</button>
+    </div>
+    <div id="collRows"></div>
+    <div class="modal-actions">
+      <button class="btn" id="collClose">关闭</button>
+    </div>
+  </div>
+</div>
+
 <!-- 空状态 -->
 <div id="emptyState">
   <div class="empty-card">
@@ -510,6 +562,7 @@
 <datalist id="dlBooks"></datalist>
 <datalist id="dlAuthors"></datalist>
 <datalist id="dlTags"></datalist>
+<datalist id="dlColls"></datalist>
 <input type="file" id="fileInput" accept=".json,application/json" hidden>
 
 <script src="data.js"></script>
@@ -552,13 +605,19 @@ function el(tag, cls, text) {
  *   viewer —— 只读镜像:展示发布数据(window.STATIC_DATA.excerpt,来自 data.js),
  *             无任何写路径;线上站与 file:// 直开都是此模式。
  * localStorage 不再存数据——真相在磁盘 excerpts.json 与发布管线里。 */
-let state = { excerpts: [] };
+let state = { excerpts: [], collections: [] };
 let editorMode = false;
 
 function publishedExcerpts() {
   try {
     const a = window.STATIC_DATA && window.STATIC_DATA.excerpt && window.STATIC_DATA.excerpt.excerpts;
     return Array.isArray(a) ? a.map(normalizeExcerpt).filter(Boolean) : [];
+  } catch (e) { return []; }
+}
+function publishedCollections() {
+  try {
+    const a = window.STATIC_DATA && window.STATIC_DATA.excerpt && window.STATIC_DATA.excerpt.collections;
+    return Array.isArray(a) ? a.map(normalizeCollection).filter(Boolean) : [];
   } catch (e) { return []; }
 }
 async function bootStore() {
@@ -572,16 +631,19 @@ async function bootStore() {
       if (d && Array.isArray(d.excerpts)) {
         editorMode = true;
         state.excerpts = d.excerpts.map(normalizeExcerpt).filter(Boolean);
+        state.collections = (Array.isArray(d.collections) ? d.collections : []).map(normalizeCollection).filter(Boolean);
         return;
       }
     }
   } catch (e) { /* 无本地服务 → 只读镜像 */ }
   state.excerpts = publishedExcerpts();
+  state.collections = publishedCollections();
 }
-/* 只读镜像热更新:父页面(suki index.html)「检查更新」拉到新发布数据后推进来 */
-window.excerptDataUpdate = function (arr) {
+/* 只读镜像热更新:父页面(suki index.html)「检查更新」拉到新发布数据后推进来(colls 旧父页不传则保持原值) */
+window.excerptDataUpdate = function (arr, colls) {
   if (editorMode || !Array.isArray(arr)) return;
   state.excerpts = arr.map(normalizeExcerpt).filter(Boolean);
+  if (Array.isArray(colls)) state.collections = colls.map(normalizeCollection).filter(Boolean);
   rebuild(false); // 收尾自带 updateStats/refreshDatalists/renderList
   toast('摘抄已更新到最新发布版');
 };
@@ -597,6 +659,21 @@ function normalizeExcerpt(e) {
     createdAt: e.createdAt || new Date().toISOString(),
   };
 }
+function normalizeCollection(c) {
+  if (!c || typeof c.name !== 'string') return null;
+  const name = c.name.trim();
+  if (!name) return null;
+  const seen = new Set(), books = [];
+  for (const b of (Array.isArray(c.books) ? c.books : [])) {
+    if (typeof b !== 'string') continue;
+    const t = normBook(b);
+    if (!t) continue;
+    const k = bookKey(t);
+    if (seen.has(k)) continue;
+    seen.add(k); books.push(t);
+  }
+  return { id: c.id || uid(), name, books };
+}
 let saveTimer = null;
 function save() {
   markTabsDirty(); // 数据变更:非活动星图页标脏,切回时按旧布局重建
@@ -607,7 +684,7 @@ function save() {
       const r = await fetch('/api/excerpts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ v: 1, excerpts: state.excerpts }),
+        body: JSON.stringify({ v: 1, excerpts: state.excerpts, collections: state.collections }),
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
     } catch (e) { toast('保存失败:本地摘抄服务未响应'); }
@@ -632,6 +709,27 @@ function derive(src) {
   }
   return { books, tags };
 }
+
+/* ---------- 合集 ----------
+ * 自动合集:同一作者名下的书籍,随摘抄数据派生(有作者就建,单书也算),不落盘;
+ * 手动合集:state.collections 落盘于 excerpts.json 的 collections 键,成员按原始书名存、按 bookKey 比对。
+ * 书被删空后成员串保留(悬空),展示时按现存书籍过滤——书名回来则成员关系自动恢复。 */
+function authorCollections() {
+  const map = new Map();
+  for (const b of derive().books.values()) {
+    if (!b.author) continue;
+    const k = b.author.toLowerCase();
+    if (!map.has(k)) map.set(k, { auto: true, name: b.author, books: [] });
+    map.get(k).books.push(b);
+  }
+  return [...map.values()];
+}
+function findColl(name) {
+  const k = String(name || '').trim().toLowerCase();
+  return state.collections.find(c => c.name.toLowerCase() === k) || null;
+}
+function collHasBook(c, title) { return c.books.some(b => bookKey(b) === bookKey(title)); }
+function collAddBook(c, title) { if (!collHasBook(c, title)) c.books.push(normBook(title)); }
 
 /* ============================================================
  * 图:节点 / 边 / 力导向模拟 / 渲染
@@ -1433,6 +1531,64 @@ function openDetail(n) {
     body.appendChild(h);
     if (isBook && n.ref.author) body.appendChild(el('p', null, n.ref.author)).style.cssText = 'color:var(--text-muted);font-size:13px;margin-bottom:8px;';
     body.appendChild(el('p', null, '共 ' + n.ref.items.length + ' 条摘抄')).style.cssText = 'color:var(--text-muted);font-size:12.5px;margin-bottom:14px;';
+    if (isBook) {
+      // 合集区:自动(作者)chip + 手动 chips;点击 chip → 列表按该合集过滤;editor 可移除/加合
+      const chips = el('div', 'chips');
+      let has = false;
+      if (n.ref.author) {
+        has = true;
+        const ac = el('span', 'chip collchip auto');
+        ac.append(el('i', 'hex'), document.createTextNode('作者合集 · ' + n.ref.author));
+        ac.title = '同名作者名下的书籍自动归入此合集';
+        ac.onclick = () => openListColl({ auto: true, name: n.ref.author });
+        chips.appendChild(ac);
+      }
+      for (const c of state.collections.filter(c => collHasBook(c, n.ref.title))) {
+        has = true;
+        const cc = el('span', 'chip collchip');
+        cc.append(el('i', 'hex'), document.createTextNode(c.name));
+        cc.title = '手动合集 · 点击在列表中查看';
+        cc.onclick = () => openListColl(c);
+        if (editorMode) {
+          const x = el('i', 'chipx', '✕');
+          x.title = '从「' + c.name + '」移出本书';
+          x.onclick = (ev) => {
+            ev.stopPropagation();
+            c.books = c.books.filter(b => bookKey(b) !== bookKey(n.ref.title));
+            save();
+            toast('已从「' + c.name + '」移出');
+            renderList();
+            openDetail(n); // 重画面板刷新 chips
+          };
+          cc.appendChild(x);
+        }
+        chips.appendChild(cc);
+      }
+      if (has || editorMode) body.appendChild(el('div', 'note-label', '合集'));
+      if (has) body.appendChild(chips);
+      if (editorMode) {
+        const row = el('div', 'colladd');
+        const inp = document.createElement('input');
+        inp.type = 'text'; inp.setAttribute('list', 'dlColls');
+        inp.placeholder = '加入合集(新名称即创建)…'; inp.autocomplete = 'off';
+        const btn = el('button', 'btn', '加入');
+        btn.onclick = () => {
+          const name = inp.value.trim();
+          if (!name) { inp.focus(); return; }
+          let c = findColl(name);
+          if (c && collHasBook(c, n.ref.title)) { toast('本书已在「' + c.name + '」中'); return; }
+          if (!c) { c = { id: uid(), name, books: [] }; state.collections.push(c); }
+          collAddBook(c, n.ref.title);
+          save();
+          toast('已加入「' + c.name + '」');
+          renderList();
+          openDetail(n); // 重画面板刷新 chips
+        };
+        inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); btn.onclick(); } });
+        row.append(inp, btn);
+        body.appendChild(row);
+      }
+    }
     const sorted = [...n.ref.items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     for (const e of sorted) {
       const it = el('div', 'exlist-item');
@@ -1462,18 +1618,40 @@ function openDetail(n) {
 function closeDetail() { $('detailPanel').classList.remove('open'); }
 
 /* ---------- 列表面板 ---------- */
+let listCollFilter = null; // 合集过滤:null=全部;手动合集对象 或 {auto:true,name:作者}(自动合集自书籍详情 chip 进入)
 function renderList() {
+  if (G.bookView) listCollFilter = null; // 星图面的列表只看本书,合集过滤无意义
   const body = $('listBody');
   const q = ($('listFilter').value || '').trim().toLowerCase();
   body.textContent = '';
-  $('listHead').textContent = G.bookView ? '《' + G.bookView + '》· 摘抄' : '全部摘抄';
+  $('listHead').textContent = G.bookView ? '《' + G.bookView + '》· 摘抄' : (listCollFilter ? '「' + truncate(listCollFilter.name, 10) + '」· 摘抄' : '全部摘抄');
   const { books } = derive(G.bookView ? state.excerpts.filter(e => bookKey(e.book) === bookKey(G.bookView)) : null);
-  const entries = [...books.values()]
+  let blist = [...books.values()];
+  if (listCollFilter && !listCollFilter.auto && !state.collections.some(c => c.id === listCollFilter.id)) listCollFilter = null; // 热更新替换/外部改动后兜底
+  if (listCollFilter) {
+    if (listCollFilter.auto) blist = blist.filter(b => (b.author || '').toLowerCase() === listCollFilter.name.toLowerCase());
+    else { const ks = new Set(listCollFilter.books.map(bookKey)); blist = blist.filter(b => ks.has(bookKey(b.title))); }
+  }
+  // 合集筛选行:仅总览且有手动合集时(自动合集从书籍详情的 chip 进入)
+  if (!G.bookView && state.collections.length) {
+    const row = el('div', 'collrow');
+    row.appendChild(el('span', 'collrow-label', '合集'));
+    for (const c of state.collections) {
+      const nIn = [...books.values()].filter(b => c.books.some(bb => bookKey(bb) === bookKey(b.title))).length; // 现存书籍数(悬空成员不计)
+      const chip = el('span', 'chip collchip' + (listCollFilter && listCollFilter.id === c.id ? ' on' : ''));
+      chip.append(el('i', 'hex'), document.createTextNode(c.name + ' · ' + nIn));
+      chip.title = '在列表中只看此合集的书(再点一次取消)';
+      chip.onclick = () => { listCollFilter = (listCollFilter && listCollFilter.id === c.id) ? null : c; renderList(); };
+      row.appendChild(chip);
+    }
+    body.appendChild(row);
+  }
+  const entries = blist
     .map(b => ({ b, items: b.items.filter(e => !q || e.text.toLowerCase().includes(q) || b.title.toLowerCase().includes(q) || (b.author || '').toLowerCase().includes(q) || e.tags.some(t => t.toLowerCase().includes(q))) }))
     .filter(x => x.items.length)
     .sort((a, z) => Math.max(...z.items.map(i => i.createdAt)) - Math.max(...a.items.map(i => i.createdAt)));
   if (!entries.length) {
-    body.appendChild(el('p', null, q ? '没有匹配的摘抄' : (editorMode ? '还没有摘抄,点右上角「添加摘抄」开始' : '暂无已发布的摘抄'))).style.cssText = 'color:var(--text-muted);font-size:13px;padding:14px 2px;';
+    body.appendChild(el('p', null, q ? '没有匹配的摘抄' : (listCollFilter ? '该合集中暂无摘抄' : (editorMode ? '还没有摘抄,点右上角「添加摘抄」开始' : '暂无已发布的摘抄')))).style.cssText = 'color:var(--text-muted);font-size:13px;padding:14px 2px;';
     return;
   }
   let total = 0;
@@ -1503,6 +1681,7 @@ function renderList() {
     }
   }
 }
+function openListColl(f) { listCollFilter = f; openList(); }
 function openList() { renderList(); $('listPanel').classList.add('open'); }
 function closeList() { $('listPanel').classList.remove('open'); }
 
@@ -1541,6 +1720,7 @@ function refreshDatalists() {
   fill('dlBooks', [...books.values()].map(b => b.title).sort());
   fill('dlAuthors', [...new Set([...books.values()].map(b => b.author).filter(Boolean))].sort());
   fill('dlTags', [...tags.values()].map(t => t.name).sort());
+  fill('dlColls', state.collections.map(c => c.name).sort());
 }
 
 /* ---------- 添加 / 编辑 ---------- */
@@ -1624,13 +1804,13 @@ function confirmDelete(e) {
 
 /* ---------- 导入 / 导出 ---------- */
 function exportJson() {
-  const blob = new Blob([JSON.stringify({ v: 1, exportedAt: new Date().toISOString(), excerpts: state.excerpts }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ v: 1, exportedAt: new Date().toISOString(), excerpts: state.excerpts, collections: state.collections }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = '摘抄星图备份_' + new Date().toISOString().slice(0, 10) + '.json';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  toast('已导出 ' + state.excerpts.length + ' 条摘抄');
+  toast('已导出 ' + state.excerpts.length + ' 条摘抄' + (state.collections.length ? ' · ' + state.collections.length + ' 个合集' : ''));
 }
 $('fileInput').addEventListener('change', (ev) => {
   const f = ev.target.files[0];
@@ -1643,7 +1823,7 @@ $('fileInput').addEventListener('change', (ev) => {
       const d = JSON.parse(reader.result);
       const arr = Array.isArray(d) ? d : d.excerpts;
       if (!Array.isArray(arr)) throw new Error('bad');
-      let added = 0, skipped = 0;
+      let added = 0, skipped = 0, cAdded = 0;
       const ids = new Set(state.excerpts.map(x => x.id));
       for (const raw of arr) {
         const e = normalizeExcerpt(raw);
@@ -1653,14 +1833,116 @@ $('fileInput').addEventListener('change', (ev) => {
         state.excerpts.push(e);
         added++;
       }
+      if (Array.isArray(d.collections)) { // 合并合集:按 id 去重
+        const cids = new Set(state.collections.map(c => c.id));
+        for (const raw of d.collections) {
+          const c = normalizeCollection(raw);
+          if (!c || cids.has(c.id)) continue;
+          cids.add(c.id);
+          state.collections.push(c);
+          cAdded++;
+        }
+      }
       save();
       rebuild(false);
-      toast('导入完成:新增 ' + added + ' 条' + (skipped ? ',跳过 ' + skipped + ' 条' : ''));
+      toast('导入完成:新增 ' + added + ' 条' + (cAdded ? ' · ' + cAdded + ' 个合集' : '') + (skipped ? ',跳过 ' + skipped + ' 条' : ''));
     } catch {
       toast('导入失败:文件格式不正确');
     }
   };
   reader.readAsText(f, 'utf-8');
+});
+
+/* ---------- 合集管理 ---------- */
+let collRenamingId = null; // 正在内联改名的手动合集 id
+function openCollManager() {
+  collRenamingId = null;
+  $('collNewName').value = '';
+  renderCollRows();
+  $('collOverlay').classList.add('open');
+  $('collNewName').focus();
+}
+function closeCollManager() { $('collOverlay').classList.remove('open'); }
+function syncOpenBookDetail() { // 管理弹窗改动后,若详情面板正开着某本书,同步刷新其合集 chips
+  const sn = G.nodeById.get(G.selectedId);
+  if (sn && sn.type === 'book') openDetail(sn);
+}
+function renderCollRows() {
+  const box = $('collRows');
+  box.textContent = '';
+  if (!state.collections.length) {
+    box.appendChild(el('p', null, '还没有手动合集。在书籍详情里把书加入合集,或在上方新建。')).style.cssText = 'color:var(--text-muted);font-size:12.5px;padding:10px 2px;';
+  }
+  for (const c of state.collections) {
+    const row = el('div', 'coll-crow');
+    if (collRenamingId === c.id) {
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.value = c.name; inp.autocomplete = 'off';
+      const commit = () => {
+        const name = inp.value.trim();
+        if (!name) { inp.focus(); return; }
+        const dup = findColl(name);
+        if (dup && dup.id !== c.id) { toast('已有同名合集'); inp.focus(); return; }
+        c.name = name;
+        collRenamingId = null;
+        save(); refreshDatalists(); renderList(); syncOpenBookDetail();
+        renderCollRows();
+        toast('已重命名为「' + name + '」');
+      };
+      inp.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+        else if (ev.key === 'Escape') { ev.stopPropagation(); collRenamingId = null; renderCollRows(); }
+      });
+      const bOk = el('button', 'btn', '✓');
+      bOk.onclick = commit;
+      const bNo = el('button', 'btn', '✕');
+      bNo.onclick = () => { collRenamingId = null; renderCollRows(); };
+      row.append(inp, bOk, bNo);
+    } else {
+      row.append(el('span', 'nm', c.name), el('span', 'cnt', c.books.length + ' 本书'));
+      const bRe = el('button', 'btn', '重命名');
+      bRe.onclick = () => { collRenamingId = c.id; renderCollRows(); };
+      const bDis = el('button', 'btn', '解散');
+      bDis.onclick = () => showConfirm('解散合集?', '「' + c.name + '」将被删除,书籍与摘抄本身不受影响。', '解散', () => {
+        state.collections = state.collections.filter(x => x.id !== c.id);
+        if (listCollFilter && listCollFilter.id === c.id) listCollFilter = null;
+        save(); refreshDatalists(); renderList(); syncOpenBookDetail();
+        renderCollRows();
+        toast('已解散「' + c.name + '」');
+      });
+      row.append(bRe, bDis);
+    }
+    box.appendChild(row);
+  }
+  const autos = authorCollections();
+  if (autos.length) {
+    const lbl = el('div', 'note-label', '作者合集(自动生成,随摘抄的作者字段变化)');
+    box.appendChild(lbl);
+    for (const a of autos) {
+      const row = el('div', 'coll-crow auto');
+      row.append(el('span', 'nm', a.name), el('span', 'cnt', a.books.length + ' 本书'));
+      box.appendChild(row);
+    }
+  }
+}
+function createCollection() {
+  const name = $('collNewName').value.trim();
+  if (!name) { $('collNewName').focus(); return; }
+  if (findColl(name)) { toast('已有同名合集'); return; }
+  state.collections.push({ id: uid(), name, books: [] });
+  $('collNewName').value = '';
+  save(); refreshDatalists(); renderList();
+  renderCollRows();
+  toast('已创建合集「' + name + '」');
+}
+$('collNewBtn').addEventListener('click', createCollection);
+$('collNewName').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); createCollection(); } });
+$('collClose').addEventListener('click', closeCollManager);
+$('collOverlay').addEventListener('pointerdown', (e) => { if (e.target === $('collOverlay')) closeCollManager(); });
+$('miColls').addEventListener('click', () => {
+  if (!editorMode) { toggleMenu(false); return; } // 菜单本身只读模式不渲染,守卫仅为稳妥
+  toggleMenu(false);
+  openCollManager();
 });
 
 /* ---------- Toast ---------- */
@@ -1720,8 +2002,10 @@ $('miUnpin').addEventListener('click', () => { toggleMenu(false); releaseAllPins
 $('miClear').addEventListener('click', () => {
   if (!editorMode) { toggleMenu(false); return; }
   toggleMenu(false);
-  showConfirm('清空所有数据?', '将删除全部 ' + state.excerpts.length + ' 条摘抄,此操作不可撤销(建议先导出备份)。', '清空', () => {
+  showConfirm('清空所有数据?', '将删除全部 ' + state.excerpts.length + ' 条摘抄' + (state.collections.length ? '与 ' + state.collections.length + ' 个合集' : '') + ',此操作不可撤销(建议先导出备份)。', '清空', () => {
     state.excerpts = [];
+    state.collections = [];
+    listCollFilter = null;
     save();
     G.selectedId = null;
     closeDetail();
@@ -1761,6 +2045,7 @@ document.addEventListener('keydown', (e) => {
     if (splitMode) { toggleSplit(false); return; }
     if ($('editOverlay').classList.contains('open')) closeEdit();
     else if ($('confirmOverlay').classList.contains('open')) closeConfirm();
+    else if ($('collOverlay').classList.contains('open')) closeCollManager();
     else if (moreMenu.classList.contains('open')) toggleMenu(false);
     else if ($('detailPanel').classList.contains('open')) { G.selectedId = null; closeDetail(); computeFocus(); render(); }
     else if ($('listPanel').classList.contains('open')) closeList();
