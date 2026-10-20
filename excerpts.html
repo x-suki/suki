@@ -295,6 +295,21 @@ try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dat
   .chip .chipx { font-style: normal; margin-left: 1px; padding: 0 1px; color: var(--text-muted); }
   .chip .chipx:hover { color: var(--danger); }
   .lsec { margin-bottom: 4px; }
+  .crumbrow { margin: 10px 0 2px; }
+  .backbtn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border: 1px solid var(--hairline); border-radius: 8px;
+    font-size: 12px; color: var(--text-secondary); cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .backbtn:hover { background: var(--surface-2); color: var(--text-primary); }
+  .sec-act {
+    font-size: 11px; color: var(--text-muted); cursor: pointer;
+    border: 1px solid var(--hairline); border-radius: 6px; padding: 1px 7px; letter-spacing: 0;
+    transition: color .15s, border-color .15s;
+  }
+  .sec-act:hover { color: var(--text-primary); border-color: var(--hoverline); }
+  .coll-hint { color: var(--text-muted); font-size: 12.5px; padding: 2px 2px 6px; }
   .sec-head { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-muted); letter-spacing: 0.06em; margin: 14px 0 8px; }
   .sec-head::after { content: ''; flex: 1; border-top: 1px solid var(--hairline); }
   .coll-item {
@@ -355,15 +370,15 @@ try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dat
     word-break: break-word;
   }
   .exlist-item .m { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
-  .group-head { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }
+  .group-head { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; }
   .group-head:first-child { margin-top: 8px; }
   .group-head .foldbtn {
     width: 22px; height: 22px; flex: none; border: 1px solid var(--hairline); border-radius: 7px;
     display: grid; place-items: center; background: transparent; color: var(--text-secondary);
-    font-size: 10px; line-height: 1;
+    font-size: 10px; line-height: 1; cursor: pointer;
     transition: background .15s, color .15s, border-color .15s;
   }
-  .group-head:hover .foldbtn { background: var(--surface-2); color: var(--text-primary); border-color: var(--hoverline); }
+  .group-head .foldbtn:hover { background: var(--surface-2); color: var(--text-primary); border-color: var(--hoverline); }
   .group-head .foldbtn b { font-weight: 400; transition: transform .18s; }
   .group-head.folded .foldbtn b { transform: rotate(-90deg); }
   .group-head .t { font-size: 13.5px; font-weight: 650; color: var(--text-primary); }
@@ -1108,7 +1123,7 @@ function enterBookView(title) {
   G.bookView = title;
   G.selectedId = null; G.hoverId = null;
   G.searchQuery = ''; $('search').value = ''; $('searchCount').textContent = '';
-  closeDetail(); closeList(); toggleMenu(false);
+  closeDetail(); toggleMenu(false); // 列表是目录,进星图面不收起(rebuild 收尾会刷新列表内容)
   $('bookBack').hidden = false;
   rebuild(true, true);
   toast('已进入《' + title + '》星图面,点「‹ 全部星图」返回');
@@ -1117,7 +1132,7 @@ function exitBookView() {
   if (!G.bookView) return;
   G.bookView = null;
   G.selectedId = null; G.hoverId = null;
-  closeDetail(); closeList();
+  closeDetail(); // 列表保持打开,回到主目录
   $('bookBack').hidden = true;
   rebuild(true);
   toast('已返回全部星图');
@@ -1789,11 +1804,11 @@ function openDetail(n) {
 }
 function closeDetail() { $('detailPanel').classList.remove('open'); }
 
-/* ---------- 列表面板 ---------- */
-let listCollFilter = null; // 合集过滤:null=全部;手动合集对象 或 {auto:true,name:作者}(自动合集自书籍详情 chip 进入)
-const listExpanded = new Set(); // 书籍栏已展开的 bookKey:默认全折叠,点组头展开;搜索/星图面时强制全展
+/* ---------- 列表面板:综合目录(主目录 ⇄ 合集目录/书籍目录,子目录有返回行) ---------- */
+let listCollFilter = null; // 合集目录:非空=正在看某合集({auto:true,name:作者} 自书籍详情 chip 进入);null=主目录
+const listExpanded = new Set(); // 书籍栏已展开的 bookKey:默认全折叠,折叠钮切换;搜索时强制全展
 function renderList() {
-  if (G.bookView) listCollFilter = null; // 星图面的列表只看本书,合集过滤无意义
+  if (G.bookView) listCollFilter = null; // 书籍目录优先于合集目录
   const body = $('listBody');
   const q = ($('listFilter').value || '').trim().toLowerCase();
   body.textContent = '';
@@ -1805,18 +1820,38 @@ function renderList() {
     if (listCollFilter.auto) blist = blist.filter(b => (b.author || '').toLowerCase() === listCollFilter.name.toLowerCase());
     else { const ks = new Set(listCollFilter.books.map(bookKey)); blist = blist.filter(b => ks.has(bookKey(b.title))); }
   }
-  /* 合集栏:总览 + 有手动合集时;点击进入(再点取消) */
-  if (!G.bookView && state.collections.length) {
+  /* 子目录返回行:目录不是跳转,随时回主目录 */
+  if (G.bookView || listCollFilter) {
+    const cr = el('div', 'crumbrow');
+    const back = el('span', 'backbtn', '‹ 主目录');
+    back.title = '返回列表主目录';
+    back.onclick = () => { if (G.bookView) exitBookView(); else { listCollFilter = null; renderList(); } };
+    cr.appendChild(back);
+    body.appendChild(cr);
+  }
+  /* 合集栏:主目录常驻(空态也保留入口);子目录不重复展示 */
+  if (!G.bookView && !listCollFilter) {
     const csec = el('div', 'lsec');
-    csec.appendChild(el('div', 'sec-head', '合集 · ' + state.collections.length));
-    for (const c of state.collections) {
-      const nIn = [...books.values()].filter(b => c.books.some(bb => bookKey(bb) === bookKey(b.title))).length; // 现存书籍数(悬空成员不计)
-      const on = listCollFilter && listCollFilter.id === c.id;
-      const row = el('div', 'coll-item' + (on ? ' on' : ''));
-      row.append(el('i', 'hex'), el('span', 'nm', c.name), el('span', 'cnt', nIn + ' 本'), el('span', 'go', on ? '✕' : '›'));
-      row.title = '在列表中只看此合集的书' + (on ? '(再点一次取消)' : '');
-      row.onclick = () => { listCollFilter = on ? null : c; renderList(); };
-      csec.appendChild(row);
+    const chead = el('div', 'sec-head');
+    chead.appendChild(document.createTextNode('合集 · ' + state.collections.length));
+    if (editorMode) {
+      const mg = el('span', 'sec-act', '管理');
+      mg.title = '打开合集管理(新建/重命名/解散)';
+      mg.onclick = openCollManager;
+      chead.appendChild(mg);
+    }
+    csec.appendChild(chead);
+    if (state.collections.length) {
+      for (const c of state.collections) {
+        const nIn = [...books.values()].filter(b => c.books.some(bb => bookKey(bb) === bookKey(b.title))).length; // 现存书籍数(悬空成员不计)
+        const row = el('div', 'coll-item');
+        row.append(el('i', 'hex'), el('span', 'nm', c.name), el('span', 'cnt', nIn + ' 本'), el('span', 'go', '›'));
+        row.title = '进入合集「' + c.name + '」';
+        row.onclick = () => { listCollFilter = c; renderList(); };
+        csec.appendChild(row);
+      }
+    } else {
+      csec.appendChild(el('p', 'coll-hint', editorMode ? '暂无合集:点「管理」新建,或在书籍详情面板把书加入合集' : '暂无合集'));
     }
     body.appendChild(csec);
   }
@@ -1834,19 +1869,25 @@ function renderList() {
   }
   for (const { b, items } of entries) {
     const bk = bookKey(b.title);
-    const open = G.bookView ? true : (!!q || listExpanded.has(bk)); // 星图面/搜索匹配时强制展开,其余默认折叠
+    const open = G.bookView ? true : (!!q || listExpanded.has(bk)); // 书籍目录/搜索匹配时强制全展,主目录默认折叠
     const gh = el('div', 'group-head' + (open ? '' : ' folded'));
     const gt = el('span', 'chip bookchip');
     const gtDot = el('i'); gtDot.style.background = 'var(--book)';
     gt.append(gtDot, document.createTextNode('《' + b.title + '》'));
-    gt.title = '进入《' + b.title + '》星图面';
-    gt.onclick = (ev) => { ev.stopPropagation(); enterBookView(b.title); };
-    gt.addEventListener('mouseenter', (ev) => showTooltip({ type: 'book', ref: b }, ev.clientX, ev.clientY));
-    gt.addEventListener('mouseleave', hideTooltip);
-    const fb = el('span', 'foldbtn'); fb.appendChild(el('b', null, '▾'));
-    gh.append(fb, gt, el('span', 'a', b.author || ''), el('span', 'n', items.length + ' 条'));
-    gh.title = open ? '收起本书摘录' : '展开本书摘录';
-    gh.onclick = () => { if (listExpanded.has(bk)) listExpanded.delete(bk); else listExpanded.add(bk); renderList(); };
+    if (!G.bookView) { // 书籍目录里书名只是标识,不再作为入口
+      gt.title = '进入《' + b.title + '》星图面(列表保持打开)';
+      gt.onclick = (ev) => { ev.stopPropagation(); enterBookView(b.title); };
+      gt.addEventListener('mouseenter', (ev) => showTooltip({ type: 'book', ref: b }, ev.clientX, ev.clientY));
+      gt.addEventListener('mouseleave', hideTooltip);
+    }
+    /* 交互只落在折叠钮与书名 chip 上,行内其余空白不可点 */
+    if (!G.bookView) {
+      const fb = el('span', 'foldbtn'); fb.appendChild(el('b', null, '▾'));
+      fb.title = open ? '收起本书摘录' : '展开本书摘录';
+      fb.onclick = (ev) => { ev.stopPropagation(); if (listExpanded.has(bk)) listExpanded.delete(bk); else listExpanded.add(bk); renderList(); };
+      gh.appendChild(fb);
+    }
+    gh.append(gt, el('span', 'a', b.author || ''), el('span', 'n', items.length + ' 条'));
     bsec.appendChild(gh);
     if (!open) continue;
     const sorted = [...items].sort((a, z) => z.createdAt.localeCompare(a.createdAt));
