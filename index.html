@@ -284,7 +284,7 @@ function gameCard(g, idx){
 function renderOverview(){
   const works = ANIME ? ANIME.works : [];
   const games = GAME ? GAME.library : [], backlog = GAME ? GAME.backlog : [];
-  const biliItems = biliAll();
+  const biliItems = biliUnique();   /* 主页统计与"最近收藏"去重：跨夹重复视频只出现一次 */
   const biliNotes = biliItems.filter(i=>i.note).length;
   const gameNotes = games.concat(backlog).reduce((n,g)=>n+g.notes.length,0);
   const animeNotes = works.filter(w=>w.notes).length;
@@ -316,12 +316,15 @@ function biliAll(){
   if (BILI) for (const f of BILI.folders) for (const it of f.items) _flat.push(it);
   return _flat;
 }
+function biliUnique(){                 /* 全部视图语义：跨夹重复收藏只保留一条（同 key） */
+  const seen = new Set();
+  return biliAll().filter(i => !seen.has(i.key) && seen.add(i.key));
+}
 function biliList(){
   const s = state.bili;
   let items = s.folder
     ? (BILI.folders.find(f=>f.id===s.folder)||{items:[]}).items
-    : (()=>{ const seen = new Set();           /* 全部视图按 key 去重（跨夹重复收藏） */
-        return biliAll().filter(i=>!seen.has(i.key)&&seen.add(i.key)); })();
+    : biliUnique();
   if (s.noted)   items = items.filter(i=>i.note);
   if (s.hideDead) items = items.filter(i=>!i.dead);
   const q = s.q.trim().toLowerCase();
@@ -338,7 +341,7 @@ function renderBili(){
   $("#v-bili").innerHTML = `
     <div class="bar">
       <div class="chips">
-        <button class="chip ${!s.folder?"on":""}" data-bf="0">全部 ${BILI.total}</button>
+        <button class="chip ${!s.folder?"on":""}" data-bf="0">全部 ${biliUnique().length}</button>
         ${BILI.folders.map(f=>`<button class="chip ${s.folder===f.id?"on":""}" data-bf="${f.id}">${esc(f.title)} ${f.count}</button>`).join("")}
       </div></div>
     <div class="bar">
@@ -722,7 +725,7 @@ function renderSearch(){
 
 /* ---------- 视图切换与事件 ---------- */
 function renderTabs(){
-  const t = [["overview","总览",""],["bili","视频收藏",BILI?BILI.total:""],["anime","番剧",ANIME?ANIME.works.length:""],["game","游戏",GAME?GAME.library.length+GAME.backlog.length:""],["excerpt","摘抄",""]];
+  const t = [["overview","总览",""],["bili","视频收藏",BILI?biliUnique().length:""],["anime","番剧",ANIME?ANIME.works.length:""],["game","游戏",GAME?GAME.library.length+GAME.backlog.length:""],["excerpt","摘抄",""]];
   $("#tabs").innerHTML = t.map(([v,l,n]) =>
     `<button data-view="${v}" class="${state.view===v?"on":""}">${l}${n!==""?` <span style="opacity:.55">${n}</span>`:""}</button>`).join("");
 }
