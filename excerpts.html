@@ -4,8 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>摘抄星图 · 书籍摘抄关系云图</title>
+<script>/* 日夜间模式:与 suki 站点同款防闪变回放(深色为默认,选过日间则先标记) */
+try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dataset.theme="light"}catch(e){}</script>
 <style>
-  /* ===== 设计令牌(dataviz 参考调色板 · 深色模式,已验证)===== */
+  /* ===== 设计令牌(dataviz 参考调色板 · 深浅双模式,已验证;深色默认)===== */
   :root {
     color-scheme: dark;
     --page:           #0d0d0d;   /* 页面底色(星空) */
@@ -21,8 +23,54 @@
     --excerpt:        #199e70;   /* 槽位3 青 · 摘抄 */
     --accent:         #3987e5;
     --critical:       #d03b3b;
+    --danger:         #e66767;   /* 危险文字(暗色槽位8红) */
+    --danger-strong:  #f08c8c;   /* 危险悬停文字 */
+    --glass:          rgba(26,26,25,0.86);  /* 悬浮件玻璃底(顶栏/图例/缩放) */
+    --glass-solid:    rgba(26,26,25,0.96);  /* 气泡等更实底 */
+    --scrim:          rgba(13,13,13,0.62);  /* 弹窗遮罩 */
+    --wash:           rgba(255,255,255,0.14); /* 深底上的浅色洗选 */
+    --wash-line:      rgba(255,255,255,0.65); /* 选中 chip 边 */
+    --hoverline:      rgba(255,255,255,0.22); /* 列表项悬停边 */
+    --logo-line:      rgba(255,255,255,0.35); /* 徽标连线 */
+    /* 画布专用(浅色下白线不可见,须随主题翻转;由 JS 读入 C) */
+    --edge:           #ffffff;   /* 连线 */
+    --ring:           #ffffff;   /* 悬停/选中外环 */
+    --divider:        rgba(255,255,255,0.09); /* 同屏分隔线 */
+    --text2-dim:      rgba(195,194,183,0.72); /* 同屏页名次级文字 */
+    --labelchip-bg:   rgba(13,13,13,0.82);   /* 同屏页名底 */
     --shadow:         0 10px 32px rgba(0,0,0,0.45);
     --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  /* 日间模式只覆盖颜色变量(suki 同款 data-theme 约定;节点色=参考调色板浅色槽位1-3) */
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --surface-2:      #ececea;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --hairline:       #e1e0d9;
+    --border:         rgba(11,11,11,0.12);
+    --book:           #2a78d6;
+    --tag:            #eb6834;
+    --excerpt:        #1baf7a;
+    --accent:         #2a78d6;
+    --danger:         #e34948;
+    --danger-strong:  #c23434;
+    --glass:          rgba(252,252,251,0.88);
+    --glass-solid:    rgba(252,252,251,0.97);
+    --scrim:          rgba(11,11,11,0.32);
+    --wash:           rgba(11,11,11,0.08);
+    --wash-line:      rgba(11,11,11,0.5);
+    --hoverline:      rgba(11,11,11,0.25);
+    --logo-line:      rgba(11,11,11,0.35);
+    --edge:           #0b0b0b;
+    --ring:           #0b0b0b;
+    --divider:        rgba(11,11,11,0.12);
+    --text2-dim:      rgba(82,81,78,0.75);
+    --labelchip-bg:   rgba(255,255,255,0.92);
+    --shadow:         0 10px 32px rgba(11,11,11,0.16);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; overflow: hidden; }
@@ -46,7 +94,7 @@
     position: fixed; top: 14px; left: 14px; right: 14px; z-index: 20;
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     padding: 9px 14px;
-    background: rgba(26,26,25,0.86);
+    background: var(--glass);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border); border-radius: 14px;
     box-shadow: var(--shadow);
@@ -58,6 +106,11 @@
     border: 1px solid var(--border);
     display: grid; place-items: center;
   }
+  /* 徽标三节点随主题取色(CSS 覆盖 SVG 表现属性) */
+  .brand .logo circle:nth-of-type(1) { fill: var(--book); }
+  .brand .logo circle:nth-of-type(2) { fill: var(--tag); }
+  .brand .logo circle:nth-of-type(3) { fill: var(--excerpt); }
+  .brand .logo path { stroke: var(--logo-line); }
   .brand h1 { font-size: 15px; font-weight: 650; letter-spacing: 0.02em; white-space: nowrap; }
   .stats { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   .stats b { color: var(--text-secondary); font-weight: 600; }
@@ -87,8 +140,8 @@
   .btn:hover { background: var(--surface-2); color: var(--text-primary); }
   .btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
   .btn.primary:hover { background: #2a78d6; }
-  .btn.danger { color: #e66767; }
-  .btn.danger:hover { background: rgba(208,59,59,0.14); border-color: rgba(208,59,59,0.4); color: #f08c8c; }
+  .btn.danger { color: var(--danger); }
+  .btn.danger:hover { background: rgba(208,59,59,0.14); border-color: rgba(208,59,59,0.4); color: var(--danger-strong); }
   .btn.icon { padding: 8px 10px; }
   .btn:focus-visible, .iconbtn:focus-visible { outline: 2px solid rgba(57,135,229,0.8); outline-offset: 2px; }
 
@@ -105,7 +158,7 @@
   }
   .tab .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tab .x { opacity: .5; font-size: 10.5px; padding: 1px 4px; border-radius: 4px; flex: none; }
-  .tab .x:hover { opacity: 1; background: rgba(255,255,255,0.14); color: var(--text-primary); }
+  .tab .x:hover { opacity: 1; background: var(--wash); color: var(--text-primary); }
   .tab:hover { color: var(--text-secondary); background: var(--surface-2); }
   .tab.active { color: var(--text-primary); background: var(--surface-2); border-color: rgba(57,135,229,0.55); }
   .tab.active::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--book); flex: none; }
@@ -127,14 +180,14 @@
     background: transparent; color: var(--text-secondary); font-size: 13px; text-align: left;
   }
   .menu button:hover { background: var(--surface-2); color: var(--text-primary); }
-  .menu button.danger { color: #e66767; }
+  .menu button.danger { color: var(--danger); }
   .menu button.danger:hover { background: rgba(208,59,59,0.12); }
   .menu hr { border: 0; border-top: 1px solid var(--hairline); margin: 6px 4px; }
 
   /* ===== 图例 ===== */
   .legend {
     position: fixed; left: 14px; bottom: 14px; z-index: 20;
-    background: rgba(26,26,25,0.86);
+    background: var(--glass);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border); border-radius: 12px;
     padding: 10px 14px; display: flex; flex-direction: column; gap: 8px;
@@ -151,7 +204,7 @@
   .zoomctl {
     position: fixed; right: 14px; bottom: 14px; z-index: 20;
     display: flex; flex-direction: column; gap: 4px;
-    background: rgba(26,26,25,0.86);
+    background: var(--glass);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border); border-radius: 12px; padding: 5px;
     box-shadow: var(--shadow);
@@ -171,7 +224,7 @@
   #tooltip {
     position: fixed; z-index: 40; pointer-events: none; display: none;
     max-width: 300px;
-    background: rgba(26,26,25,0.96);
+    background: var(--glass-solid);
     border: 1px solid var(--border); border-radius: 10px;
     padding: 8px 11px; box-shadow: var(--shadow);
   }
@@ -238,9 +291,9 @@
     clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
   .chip.collchip.auto { border-style: dashed; color: var(--text-muted); }
   .chip.collchip.auto i.hex { background: var(--text-muted); }
-  .chip.collchip.on { border-color: rgba(255,255,255,0.65); color: var(--text-primary); }
+  .chip.collchip.on { border-color: var(--wash-line); color: var(--text-primary); }
   .chip .chipx { font-style: normal; margin-left: 1px; padding: 0 1px; color: var(--text-muted); }
-  .chip .chipx:hover { color: #e66767; }
+  .chip .chipx:hover { color: var(--danger); }
   .collrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline); }
   .collrow-label { font-size: 11.5px; color: var(--text-muted); flex: none; }
   .colladd { display: flex; gap: 8px; margin: 8px 0 14px; }
@@ -280,7 +333,7 @@
     padding: 11px 12px; border: 1px solid var(--hairline); border-radius: 10px;
     margin-bottom: 8px; cursor: pointer; transition: border-color .15s, background .15s;
   }
-  .exlist-item:hover { border-color: rgba(255,255,255,0.22); background: var(--surface-2); }
+  .exlist-item:hover { border-color: var(--hoverline); background: var(--surface-2); }
   .exlist-item .q {
     font-size: 13px; line-height: 1.65; color: var(--text-secondary);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -303,7 +356,7 @@
   /* ===== 弹窗 ===== */
   .overlay {
     position: fixed; inset: 0; z-index: 50; display: none;
-    background: rgba(13,13,13,0.62);
+    background: var(--scrim);
     backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
     align-items: center; justify-content: center; padding: 16px;
   }
@@ -329,7 +382,7 @@
   .field input:focus, .field textarea:focus { border-color: rgba(57,135,229,0.65); }
   .field textarea { min-height: 96px; line-height: 1.7; }
   .field textarea.small { min-height: 68px; }
-  .field .err { font-size: 11.5px; color: #e66767; margin-top: 5px; display: none; }
+  .field .err { font-size: 11.5px; color: var(--danger); margin-top: 5px; display: none; }
   .field.invalid input, .field.invalid textarea { border-color: rgba(208,59,59,0.7); }
   .field.invalid .err { display: block; }
   .frow { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -371,12 +424,27 @@
 
   /* ===== 窄屏 ===== */
   @media (max-width: 640px) {
-    .topbar { gap: 8px; }
+    /* 紧凑顶栏:间距收紧,让 列表/添加/更多 三个按钮在 390px 一行放下(此前「更多」会孤行) */
+    .topbar { top: 8px; left: 8px; right: 8px; gap: 6px; padding: 7px 10px; border-radius: 12px; }
+    .brand { gap: 7px; margin-right: 0; }
     .brand h1 { font-size: 14px; }
     .stats { display: none; }
+    .btn { padding: 7px 10px; font-size: 12.5px; }
     .searchwrap { order: 5; flex-basis: 100%; max-width: none; }
     .panel { width: 100vw; }
+    .legend { left: 8px; bottom: 8px; padding: 8px 11px; gap: 6px; }
+    .zoomctl { right: 8px; bottom: 8px; }
     .legend .hint { display: none; }
+  }
+  /* ===== 触屏:加大触控目标 ===== */
+  @media (pointer: coarse) {
+    .iconbtn { width: 42px; height: 42px; font-size: 18px; }
+    .tab { padding: 7px 9px 7px 13px; font-size: 13px; }
+    .tab .x { font-size: 13px; padding: 4px 8px; }
+    .tabbtn { padding: 7px 12px; font-size: 13px; }
+    .chip { padding: 7px 14px; font-size: 13px; }
+    .coll-crow .btn { padding: 8px 12px; }
+    .menu button { padding: 12px 13px; }
   }
   /* 只读镜像(无本地服务):隐藏一切增删改入口 */
   body[data-readonly="true"] #btnAdd,
@@ -404,7 +472,7 @@
   <button class="btn" id="bookBack" hidden title="返回全部星图">‹ 全部星图</button>
   <div class="stats" id="stats"></div>
   <div class="searchwrap">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c3c2b7" stroke-width="2.4" stroke-linecap="round">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
       <circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>
     </svg>
     <input id="search" type="text" placeholder="搜索摘抄、书名、作者或主题…" autocomplete="off">
@@ -578,12 +646,40 @@ const C = {
   page: '#0d0d0d', surface: '#1a1a19',
   text: '#ffffff', text2: '#c3c2b7', muted: '#898781',
   book: '#3987e5', tag: '#d95926', excerpt: '#199e70',
+  edge: '#ffffff', ring: '#ffffff',
+  divider: 'rgba(255,255,255,0.09)', text2dim: 'rgba(195,194,183,0.72)', labelchip: 'rgba(13,13,13,0.82)',
 };
 const TYPE_META = {
-  book:    { color: C.book,    name: '书籍' },
-  tag:     { color: C.tag,     name: '主题' },
-  excerpt: { color: C.excerpt, name: '摘抄' },
+  book:    { get color() { return C.book; },    name: '书籍' },
+  tag:     { get color() { return C.tag; },     name: '主题' },
+  excerpt: { get color() { return C.excerpt; }, name: '摘抄' },
 };
+/* 画布没有 CSS 级联,色板从 CSS 变量读——日夜间切换只翻 :root 的 data-theme,canvas 跟着走 */
+const CANVAS_VARS = [
+  ['page', '--page'], ['surface', '--surface-1'], ['text', '--text-primary'], ['text2', '--text-secondary'],
+  ['muted', '--text-muted'], ['book', '--book'], ['tag', '--tag'], ['excerpt', '--excerpt'],
+  ['edge', '--edge'], ['ring', '--ring'], ['divider', '--divider'], ['text2dim', '--text2-dim'], ['labelchip', '--labelchip-bg'],
+];
+function refreshCanvasPalette() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const [k, v] of CANVAS_VARS) { const val = cs.getPropertyValue(v).trim(); if (val) C[k] = val; }
+}
+const withAlpha = (hex, a) => { /* #rrggbb -> rgba 字符串(悬停/选中环按透明度合成);其他格式原样返回 */
+  if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    const n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+  return hex;
+};
+/* ---------- 日夜间模式:跟随 suki 站点 ----------
+ * 真相 = localStorage['suki.theme'](父页切换按钮写入;head 内联脚本防闪变)。本页无自己的切换按钮:
+ * iframe 内由 storage 事件 / 父页 <html data-theme> 观察实时跟随;file:// 直开读同一键。 */
+function applyTheme(t) {
+  if (t === 'light') document.documentElement.dataset.theme = 'light';
+  else delete document.documentElement.dataset.theme;
+  refreshCanvasPalette();
+  render();
+}
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 9));
@@ -1117,11 +1213,11 @@ function drawView(nodes, nodeById, edges, view, focus, selId, hovId, ctx2, w, h,
     const isHot = focus && focus.t1.has(selId || hovId) && (e.s.id === (selId || hovId) || e.t.id === (selId || hovId)) && Math.min(ts, tt) > 0.5;
     let a, color, wdt;
     if (isHot) { a = 0.85; color = TYPE_META[e.hub].color; wdt = 2 / k; }
-    else if (!focus) { a = 0.10; color = '#ffffff'; wdt = 1 / k; }
-    else if (ts === 1 && tt === 1) { a = 0.5; color = '#ffffff'; wdt = 1.4 / k; }
-    else if (ts === 1 || tt === 1) { a = 0.22; color = '#ffffff'; wdt = 1 / k; }
-    else if (ts > 0.2 && tt > 0.2) { a = 0.14; color = '#ffffff'; wdt = 1 / k; }
-    else { a = 0.05; color = '#ffffff'; wdt = 1 / k; }
+    else if (!focus) { a = 0.10; color = C.edge; wdt = 1 / k; }
+    else if (ts === 1 && tt === 1) { a = 0.5; color = C.edge; wdt = 1.4 / k; }
+    else if (ts === 1 || tt === 1) { a = 0.22; color = C.edge; wdt = 1 / k; }
+    else if (ts > 0.2 && tt > 0.2) { a = 0.14; color = C.edge; wdt = 1 / k; }
+    else { a = 0.05; color = C.edge; wdt = 1 / k; }
     ctx2.globalAlpha = a;
     ctx2.strokeStyle = color;
     ctx2.lineWidth = wdt;
@@ -1149,7 +1245,7 @@ function drawView(nodes, nodeById, edges, view, focus, selId, hovId, ctx2, w, h,
   }
   // 悬停 / 选中 外环
   ctx2.globalAlpha = 1;
-  for (const [id, colr, wd] of [[hovId, 'rgba(255,255,255,0.5)', 1.4], [selId, 'rgba(255,255,255,0.9)', 1.8]]) {
+  for (const [id, colr, wd] of [[hovId, withAlpha(C.ring, 0.5), 1.4], [selId, withAlpha(C.ring, 0.9), 1.8]]) {
     if (!id || !nodeById.has(id)) continue;
     const n = nodeById.get(id);
     ctx2.strokeStyle = colr; ctx2.lineWidth = wd / k;
@@ -1176,7 +1272,7 @@ function drawView(nodes, nodeById, edges, view, focus, selId, hovId, ctx2, w, h,
     if (lx < x0 + 8) lx = x0 + 8;
     const ly = Math.max(10, Math.min(h - 10, py));   // 上下缘同理收进
     ctx2.globalAlpha = t;
-    ctx2.lineWidth = 3.2; ctx2.strokeStyle = 'rgba(13,13,13,0.88)'; ctx2.lineJoin = 'round';
+    ctx2.lineWidth = 3.2; ctx2.strokeStyle = withAlpha(C.page, 0.88); ctx2.lineJoin = 'round'; // 标签光晕=页面底色,随主题翻转
     ctx2.strokeText(txt, lx, ly);
     ctx2.fillStyle = hot ? C.text : C.text2;
     ctx2.fillText(txt, lx, ly);
@@ -1237,11 +1333,11 @@ function renderSplit() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const title = (isActive ? '● ' : '') + tabTitle(isActive ? G.bookView : t.snap.bookView) + (t.dirty ? ' *' : '');
     const tw = ctx.measureText(title).width;
-    ctx.fillStyle = 'rgba(13,13,13,0.82)';
+    ctx.fillStyle = C.labelchip;
     ctx.fillRect(x0 + w / 2 - tw / 2 - 10, labelY - 11, tw + 20, 22);
-    ctx.fillStyle = isActive ? C.text : 'rgba(195,194,183,0.72)';
+    ctx.fillStyle = isActive ? C.text : C.text2dim;
     ctx.fillText(title, x0 + w / 2, labelY);
-    if (i) { ctx.fillStyle = 'rgba(255,255,255,0.09)'; ctx.fillRect(x0 - 0.5, 0, 1, H); }
+    if (i) { ctx.fillStyle = C.divider; ctx.fillRect(x0 - 0.5, 0, 1, H); }
   }
   ctx.textAlign = 'left';
   ctx.globalAlpha = 1;
@@ -1350,9 +1446,32 @@ function nodeAt(mx, my) {
   return best;
 }
 
+/* 触屏多点手势:两指=捏合缩放(绕两指中点)+中点位移=平移;三指以上不处理 */
+const touches = new Map(); // pointerId -> {x, y}
+function pinchNow() {
+  const [a, b] = [...touches.values()];
+  return { dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+}
+function releasePinchHold() { // "落指即固定"的拖拽节点归还自由(本来就 pin 着的保持原状)
+  if (G.dragNode) {
+    G.dragNode.fixed = !!G.dragNode.pinned;
+    G.dragNode.fx = null; G.dragNode.fy = null;
+    G.dragNode = null;
+  }
+}
 canvas.addEventListener('pointerdown', (ev) => {
   if (splitMode) return; // 同屏:画布只读
   canvas.setPointerCapture(ev.pointerId);
+  touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (touches.size === 2) { // 第二根手指落下:撤销单指语义,进入捏合
+    releasePinchHold();
+    G.panning = null; G.downInfo = null;
+    canvas.classList.remove('grabbing');
+    hideTooltip();
+    G.pinch = pinchNow();
+    return;
+  }
+  if (touches.size > 2) return;
   const { mx, my } = toLocal(ev);
   const n = nodeAt(mx, my);
   G.downInfo = { x: ev.clientX, y: ev.clientY, moved: false, hit: !!n };
@@ -1366,6 +1485,17 @@ canvas.addEventListener('pointerdown', (ev) => {
 });
 canvas.addEventListener('pointermove', (ev) => {
   if (splitMode) { if (G.hoverId) { G.hoverId = null; computeFocus(); render(); } hideTooltip(); return; }
+  if (touches.has(ev.pointerId)) touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (G.pinch) {
+    if (touches.size < 2) return;
+    const s = pinchNow();
+    if (G.pinch.dist > 8) zoomAt(s.dist / G.pinch.dist, s.mx, s.my); // 两指快叠拢时只平移不缩放(防抖)
+    G.view.ox += s.mx - G.pinch.mx;
+    G.view.oy += s.my - G.pinch.my;
+    render();
+    G.pinch = s;
+    return;
+  }
   const { mx, my } = toLocal(ev);
   if (G.dragNode) {
     if (G.downInfo && Math.hypot(ev.clientX - G.downInfo.x, ev.clientY - G.downInfo.y) > 3) G.downInfo.moved = true;
@@ -1397,6 +1527,11 @@ canvas.addEventListener('pointermove', (ev) => {
 });
 canvas.addEventListener('pointerup', (ev) => {
   canvas.classList.remove('grabbing');
+  touches.delete(ev.pointerId);
+  if (G.pinch) { // 捏合中的抬指不落成点击/拖放语义;两指不再齐就结束捏合,剩余手指等重新落指
+    if (touches.size < 2) { G.pinch = null; touches.clear(); G.panning = null; G.downInfo = null; }
+    return;
+  }
   if (G.dragNode) {
     if (G.downInfo && !G.downInfo.moved) {
       selectNode(G.dragNode);
@@ -1414,6 +1549,13 @@ canvas.addEventListener('pointerup', (ev) => {
   }
   G.panning = null;
   G.downInfo = null;
+});
+canvas.addEventListener('pointercancel', (ev) => { // 系统接管手势(来电/边缘滑动等):等同松手但不算点击
+  touches.delete(ev.pointerId);
+  if (G.pinch && touches.size < 2) { G.pinch = null; touches.clear(); }
+  releasePinchHold();
+  G.panning = null; G.downInfo = null;
+  canvas.classList.remove('grabbing');
 });
 canvas.addEventListener('dblclick', (ev) => {
   if (splitMode) return;
@@ -2059,6 +2201,19 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('resize', resize);
 
 /* ---------- 启动 ---------- */
+/* 日夜间模式事件面:storage(父页 toggle 写入,iframe 收到跨文档事件) + 父页 html 属性观察(file:// 跨源则无父页可看) */
+window.addEventListener('storage', (e) => {
+  if (e && e.key !== null && e.key !== 'suki.theme') return;
+  try { applyTheme(localStorage.getItem('suki.theme') === 'light' ? 'light' : 'dark'); } catch (err) { /* 忽略 */ }
+});
+try {
+  if (window.parent && window.parent !== window) {
+    const pe = window.parent.document.documentElement;
+    new MutationObserver(() => {
+      try { applyTheme(pe.dataset.theme === 'light' ? 'light' : 'dark'); } catch (err) { /* 忽略 */ }
+    }).observe(pe, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+} catch (e) { /* 跨源(本地 file://)无父页可看,忽略 */ }
 /* 测试辅助: ?ui=list|detail|add|menu 打开对应界面; ?book=书名 直进该书星图面; ?notrans=1 禁用过渡(截图用) */
 const qs = new URLSearchParams(location.search);
 if (qs.get('notrans') === '1') {
@@ -2070,6 +2225,7 @@ if (qs.get('notrans') === '1') {
   await bootStore(); // 探测本地服务:可达=editor(写 excerpts.json);不可达=viewer(读发布数据)
   if (!editorMode) document.body.dataset.readonly = 'true';
   resize();
+  refreshCanvasPalette(); // 首帧前把画布色板对齐当前主题(head 内联脚本可能已标 light)
   rebuild(true);
   /* 标签页:首屏即第 1 页 */
   {
