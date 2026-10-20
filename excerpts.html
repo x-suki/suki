@@ -294,7 +294,17 @@ try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dat
   .chip.collchip.on { border-color: var(--wash-line); color: var(--text-primary); }
   .chip .chipx { font-style: normal; margin-left: 1px; padding: 0 1px; color: var(--text-muted); }
   .chip .chipx:hover { color: var(--danger); }
-  .lsec { margin-bottom: 4px; }
+  .ltabs { display: flex; align-items: center; gap: 6px; margin: 12px 0 4px; }
+  .ltab {
+    flex: 1; text-align: center; padding: 6px 0;
+    border: 1px solid var(--hairline); border-radius: 8px;
+    font-size: 12.5px; color: var(--text-muted); cursor: pointer; user-select: none; -webkit-user-select: none;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .ltab:hover { color: var(--text-secondary); background: var(--surface-2); }
+  .ltab.on { color: var(--text-primary); background: var(--surface-2); border-color: rgba(57,135,229,0.55); }
+  .ltabc { font-size: 11px; color: var(--text-muted); margin-left: 5px; }
+  .ltabs .sec-act { flex: none; margin-left: auto; }
   .crumbrow { margin: 10px 0 2px; }
   .backbtn {
     display: inline-flex; align-items: center; gap: 4px;
@@ -310,8 +320,6 @@ try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dat
   }
   .sec-act:hover { color: var(--text-primary); border-color: var(--hoverline); }
   .coll-hint { color: var(--text-muted); font-size: 12.5px; padding: 2px 2px 6px; }
-  .sec-head { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-muted); letter-spacing: 0.06em; margin: 14px 0 8px; }
-  .sec-head::after { content: ''; flex: 1; border-top: 1px solid var(--hairline); }
   .coll-item {
     display: flex; align-items: center; gap: 9px; padding: 9px 12px;
     border: 1px solid var(--hairline); border-radius: 10px; margin-bottom: 6px;
@@ -373,9 +381,9 @@ try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dat
   .group-head { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; }
   .group-head:first-child { margin-top: 8px; }
   .group-head .foldbtn {
-    width: 22px; height: 22px; flex: none; border: 1px solid var(--hairline); border-radius: 7px;
+    width: 24px; height: 24px; flex: none; border: 1px solid var(--hairline); border-radius: 7px;
     display: grid; place-items: center; background: transparent; color: var(--text-secondary);
-    font-size: 10px; line-height: 1; cursor: pointer;
+    font-size: 12px; line-height: 1; cursor: pointer;
     transition: background .15s, color .15s, border-color .15s;
   }
   .group-head .foldbtn:hover { background: var(--surface-2); color: var(--text-primary); border-color: var(--hoverline); }
@@ -483,7 +491,7 @@ try{if(localStorage.getItem("suki.theme")==="light")document.documentElement.dat
     .tabbtn { padding: 7px 12px; font-size: 13px; }
     .chip { padding: 7px 14px; font-size: 13px; }
     .coll-item { padding: 12px; }
-    .group-head .foldbtn { width: 28px; height: 28px; font-size: 12px; }
+    .group-head .foldbtn { width: 28px; height: 28px; font-size: 14px; }
     .coll-item .go { font-size: 15px; }
     .coll-crow .btn { padding: 8px 12px; }
     .menu button { padding: 12px 13px; }
@@ -1121,6 +1129,7 @@ function enterBookView(title) {
   if (G.bookView && bookKey(G.bookView) === bookKey(title)) return;
   if (!state.excerpts.some(e => bookKey(e.book) === bookKey(title))) return;
   G.bookView = title;
+  listTab = 'books';
   G.selectedId = null; G.hoverId = null;
   G.searchQuery = ''; $('search').value = ''; $('searchCount').textContent = '';
   closeDetail(); toggleMenu(false); // 列表是目录,进星图面不收起(rebuild 收尾会刷新列表内容)
@@ -1804,91 +1813,118 @@ function openDetail(n) {
 }
 function closeDetail() { $('detailPanel').classList.remove('open'); }
 
-/* ---------- 列表面板:综合目录(主目录 ⇄ 合集目录/书籍目录,子目录有返回行) ---------- */
-let listCollFilter = null; // 合集目录:非空=正在看某合集({auto:true,name:作者} 自书籍详情 chip 进入);null=主目录
+/* ---------- 列表面板:综合目录(顶层「合集|书籍」页签;子目录有返回行;作者合集与手动合集同级并列) ---------- */
+let listCollFilter = null; // 合集目录:非空=正在看某合集(手动对象或 {auto:true,name:作者});null=非合集目录
+let listTab = 'books';     // 顶层页签:'books' | 'colls'
 const listExpanded = new Set(); // 书籍栏已展开的 bookKey:默认全折叠,折叠钮切换;搜索时强制全展
 function renderList() {
-  if (G.bookView) listCollFilter = null; // 书籍目录优先于合集目录
+  if (G.bookView) { listTab = 'books'; listCollFilter = null; } // 书籍目录优先
   const body = $('listBody');
   const q = ($('listFilter').value || '').trim().toLowerCase();
   body.textContent = '';
   $('listHead').textContent = G.bookView ? '《' + G.bookView + '》· 摘录' : (listCollFilter ? '「' + truncate(listCollFilter.name, 10) + '」· 摘录' : '全部摘录');
   const { books } = derive(G.bookView ? state.excerpts.filter(e => bookKey(e.book) === bookKey(G.bookView)) : null);
-  let blist = [...books.values()];
+  const all = [...books.values()];
+  /* 合集 = 手动合集 + 作者合集,同级并列不区分 */
+  const authorColls = [...new Set(all.map(b => (b.author || '').trim()).filter(Boolean))].sort((a, z) => a.localeCompare(z));
+  const nColls = state.collections.length + authorColls.length;
+  let blist = all;
   if (listCollFilter && !listCollFilter.auto && !state.collections.some(c => c.id === listCollFilter.id)) listCollFilter = null; // 热更新替换/外部改动后兜底
   if (listCollFilter) {
-    if (listCollFilter.auto) blist = blist.filter(b => (b.author || '').toLowerCase() === listCollFilter.name.toLowerCase());
-    else { const ks = new Set(listCollFilter.books.map(bookKey)); blist = blist.filter(b => ks.has(bookKey(b.title))); }
+    if (listCollFilter.auto) blist = all.filter(b => (b.author || '').toLowerCase() === listCollFilter.name.toLowerCase());
+    else { const ks = new Set(listCollFilter.books.map(bookKey)); blist = all.filter(b => ks.has(bookKey(b.title))); }
   }
-  /* 子目录返回行:目录不是跳转,随时回主目录 */
-  if (G.bookView || listCollFilter) {
+  /* 顶层页签:合集 | 书籍(点页签 = 回到该目录根) */
+  const tabs = el('div', 'ltabs');
+  const tC = el('span', 'ltab' + (listTab === 'colls' ? ' on' : ''));
+  tC.append(document.createTextNode('合集'), el('span', 'ltabc', String(nColls)));
+  tC.title = '合集目录';
+  tC.onclick = () => { listTab = 'colls'; listCollFilter = null; renderList(); };
+  const tB = el('span', 'ltab' + (listTab !== 'colls' ? ' on' : ''));
+  tB.append(document.createTextNode('书籍'), el('span', 'ltabc', String(all.length)));
+  tB.title = '书籍目录';
+  tB.onclick = () => { listTab = 'books'; if (G.bookView) exitBookView(); renderList(); };
+  tabs.append(tC, tB);
+  if (editorMode && listTab === 'colls') {
+    const mg = el('span', 'sec-act', '管理');
+    mg.title = '打开合集管理(新建/重命名/解散)';
+    mg.onclick = openCollManager;
+    tabs.appendChild(mg);
+  }
+  body.appendChild(tabs);
+  /* 子目录返回行 */
+  if (listCollFilter) {
     const cr = el('div', 'crumbrow');
-    const back = el('span', 'backbtn', '‹ 主目录');
-    back.title = '返回列表主目录';
-    back.onclick = () => { if (G.bookView) exitBookView(); else { listCollFilter = null; renderList(); } };
+    const back = el('span', 'backbtn', '‹ 全部合集');
+    back.title = '返回合集目录';
+    back.onclick = () => { listCollFilter = null; renderList(); };
     cr.appendChild(back);
     body.appendChild(cr);
   }
-  /* 合集栏:主目录常驻(空态也保留入口);子目录不重复展示 */
-  if (!G.bookView && !listCollFilter) {
-    const csec = el('div', 'lsec');
-    const chead = el('div', 'sec-head');
-    chead.appendChild(document.createTextNode('合集 · ' + state.collections.length));
-    if (editorMode) {
-      const mg = el('span', 'sec-act', '管理');
-      mg.title = '打开合集管理(新建/重命名/解散)';
-      mg.onclick = openCollManager;
-      chead.appendChild(mg);
-    }
-    csec.appendChild(chead);
-    if (state.collections.length) {
+  if (listTab === 'colls') {
+    if (listCollFilter) {
+      appendBookGroups(body, blist, q, false); // 合集目录:该合集的书,折叠语义同书籍栏
+    } else if (nColls === 0) {
+      body.appendChild(el('p', 'coll-hint', editorMode ? '暂无合集:点「管理」新建,或在书籍详情面板把书加入合集' : '暂无合集'));
+    } else {
       for (const c of state.collections) {
-        const nIn = [...books.values()].filter(b => c.books.some(bb => bookKey(bb) === bookKey(b.title))).length; // 现存书籍数(悬空成员不计)
+        const nIn = all.filter(b => c.books.some(bb => bookKey(bb) === bookKey(b.title))).length; // 现存书籍数(悬空成员不计)
         const row = el('div', 'coll-item');
         row.append(el('i', 'hex'), el('span', 'nm', c.name), el('span', 'cnt', nIn + ' 本'), el('span', 'go', '›'));
         row.title = '进入合集「' + c.name + '」';
         row.onclick = () => { listCollFilter = c; renderList(); };
-        csec.appendChild(row);
+        body.appendChild(row);
       }
-    } else {
-      csec.appendChild(el('p', 'coll-hint', editorMode ? '暂无合集:点「管理」新建,或在书籍详情面板把书加入合集' : '暂无合集'));
+      for (const a of authorColls) {
+        const nIn = all.filter(b => (b.author || '').trim() === a).length;
+        const row = el('div', 'coll-item');
+        row.append(el('i', 'hex'), el('span', 'nm', a), el('span', 'cnt', nIn + ' 本'), el('span', 'go', '›'));
+        row.title = '进入作者合集「' + a + '」';
+        row.onclick = () => { listCollFilter = { auto: true, name: a }; renderList(); };
+        body.appendChild(row);
+      }
     }
-    body.appendChild(csec);
+  } else if (G.bookView) {
+    /* 书籍目录:专有界面(全展,无折叠钮,书名只是标识) */
+    const cr = el('div', 'crumbrow');
+    const back = el('span', 'backbtn', '‹ 主目录');
+    back.title = '返回列表主目录';
+    back.onclick = () => exitBookView();
+    cr.appendChild(back);
+    body.appendChild(cr);
+    appendBookGroups(body, blist, q, true);
+  } else {
+    appendBookGroups(body, blist, q, false);
   }
+}
+function appendBookGroups(container, blist, q, forceOpen) {
   const entries = blist
     .map(b => ({ b, items: b.items.filter(e => !q || e.text.toLowerCase().includes(q) || b.title.toLowerCase().includes(q) || (b.author || '').toLowerCase().includes(q) || e.tags.some(t => t.toLowerCase().includes(q))) }))
     .filter(x => x.items.length)
     .sort((a, z) => Math.max(...z.items.map(i => i.createdAt)) - Math.max(...a.items.map(i => i.createdAt)));
-  /* 书籍栏 */
-  const bsec = el('div', 'lsec');
-  bsec.appendChild(el('div', 'sec-head', (G.bookView ? '本书' : '书籍') + ' · ' + entries.length));
-  body.appendChild(bsec);
   if (!entries.length) {
-    bsec.appendChild(el('p', null, q ? '没有匹配的摘录' : (listCollFilter ? '该合集中暂无摘录' : (editorMode ? '还没有摘录,点右上角「添加摘录」开始' : '暂无已发布的摘录')))).style.cssText = 'color:var(--text-muted);font-size:13px;padding:14px 2px;';
+    container.appendChild(el('p', null, q ? '没有匹配的摘录' : (listCollFilter ? '该合集中暂无摘录' : (editorMode ? '还没有摘录,点右上角「添加摘录」开始' : '暂无已发布的摘录')))).style.cssText = 'color:var(--text-muted);font-size:13px;padding:14px 2px;';
     return;
   }
   for (const { b, items } of entries) {
     const bk = bookKey(b.title);
-    const open = G.bookView ? true : (!!q || listExpanded.has(bk)); // 书籍目录/搜索匹配时强制全展,主目录默认折叠
+    const open = forceOpen || (!!q || listExpanded.has(bk)); // 书籍目录/搜索匹配时强制全展,主目录默认折叠
     const gh = el('div', 'group-head' + (open ? '' : ' folded'));
     const gt = el('span', 'chip bookchip');
     const gtDot = el('i'); gtDot.style.background = 'var(--book)';
     gt.append(gtDot, document.createTextNode('《' + b.title + '》'));
-    if (!G.bookView) { // 书籍目录里书名只是标识,不再作为入口
+    if (!forceOpen) { // 书籍目录里书名只是标识,不再作为入口
       gt.title = '进入《' + b.title + '》星图面(列表保持打开)';
       gt.onclick = (ev) => { ev.stopPropagation(); enterBookView(b.title); };
       gt.addEventListener('mouseenter', (ev) => showTooltip({ type: 'book', ref: b }, ev.clientX, ev.clientY));
       gt.addEventListener('mouseleave', hideTooltip);
-    }
-    /* 交互只落在折叠钮与书名 chip 上,行内其余空白不可点 */
-    if (!G.bookView) {
       const fb = el('span', 'foldbtn'); fb.appendChild(el('b', null, '▾'));
       fb.title = open ? '收起本书摘录' : '展开本书摘录';
       fb.onclick = (ev) => { ev.stopPropagation(); if (listExpanded.has(bk)) listExpanded.delete(bk); else listExpanded.add(bk); renderList(); };
       gh.appendChild(fb);
     }
     gh.append(gt, el('span', 'a', b.author || ''), el('span', 'n', items.length + ' 条'));
-    bsec.appendChild(gh);
+    container.appendChild(gh);
     if (!open) continue;
     const sorted = [...items].sort((a, z) => z.createdAt.localeCompare(a.createdAt));
     for (const e of sorted) {
@@ -1900,11 +1936,11 @@ function renderList() {
         const en = G.nodeById.get('e:' + e.id);
         if (en) { selectNode(en); centerOn(en); }
       };
-      bsec.appendChild(it);
+      container.appendChild(it);
     }
   }
 }
-function openListColl(f) { listCollFilter = f; openList(); }
+function openListColl(f) { listCollFilter = f; listTab = 'colls'; openList(); }
 function openList() { renderList(); $('listPanel').classList.add('open'); }
 function closeList() { $('listPanel').classList.remove('open'); }
 
