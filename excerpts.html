@@ -1984,22 +1984,36 @@ function refreshDatalists() {
 
 /* ---------- 添加 / 编辑 ---------- */
 let editingId = null;
+let editDraft = null; // 意外关闭(点窗口外空白)时暂存的未完成添加,下次「添加摘抄」接续
 function openEdit(e, presetBook, presetAuthor) {
   if (!editorMode) return; // 只读镜像:无编辑
   editingId = e ? e.id : null;
   $('editTitle').textContent = e ? '编辑摘录' : '添加摘录';
-  $('inText').value = e ? e.text : '';
-  $('inBook').value = e ? e.book : (presetBook || '');
-  $('inAuthor').value = e ? e.author : (presetAuthor || '');
-  $('inTags').value = e ? e.tags.join(', ') : '';
-  $('inNote').value = e ? e.note : '';
+  const d = (!e && editDraft) ? editDraft : null; // 接续上次未完成的添加
+  $('inText').value = e ? e.text : (d ? d.text : '');
+  $('inBook').value = e ? e.book : (d ? d.book : (presetBook || ''));
+  $('inAuthor').value = e ? e.author : (d ? d.author : (presetAuthor || ''));
+  $('inTags').value = e ? e.tags.join(', ') : (d ? d.tags : '');
+  $('inNote').value = e ? e.note : (d ? d.note : '');
   $('fText').classList.remove('invalid');
   $('fBook').classList.remove('invalid');
   refreshDatalists();
   $('editOverlay').classList.add('open');
+  if (d) toast('已接续上次未完成的编辑');
   setTimeout(() => $('inText').focus(), 60);
 }
-function closeEdit() { $('editOverlay').classList.remove('open'); editingId = null; }
+function closeEdit(discard) {
+  // 点窗口外空白关闭且在「添加」态 = 意外关闭,暂存已输入内容待接续;
+  // 取消/Esc/保存成功 = 有意关闭,清暂存;编辑已有条目不暂存(原值仍在库里)。
+  if (discard) editDraft = null;
+  else if (!editingId) {
+    const d = { text: $('inText').value, book: $('inBook').value, author: $('inAuthor').value,
+                tags: $('inTags').value, note: $('inNote').value };
+    if ((d.text + d.book + d.author + d.tags + d.note).trim()) editDraft = d;
+  }
+  $('editOverlay').classList.remove('open');
+  editingId = null;
+}
 function parseTags(s) {
   const seen = new Set(), out = [];
   for (const t of s.split(/[,，、;；]+/).map(x => x.trim()).filter(Boolean)) {
@@ -2030,7 +2044,7 @@ function saveEdit() {
     toast('已添加摘录');
   }
   save();
-  closeEdit();
+  closeEdit(true); // 已入库,暂存一并清掉
   rebuild(false);
   $('emptyState').classList.remove('show');
 }
@@ -2286,7 +2300,7 @@ $('tabSplit').addEventListener('click', () => toggleSplit());
 $('listClose').addEventListener('click', closeList);
 $('detailClose').addEventListener('click', () => { G.selectedId = null; closeDetail(); computeFocus(); render(); });
 $('listFilter').addEventListener('input', renderList);
-$('editCancel').addEventListener('click', closeEdit);
+$('editCancel').addEventListener('click', () => closeEdit(true));
 $('editSave').addEventListener('click', saveEdit);
 $('editOverlay').addEventListener('pointerdown', (e) => { if (e.target === $('editOverlay')) closeEdit(); });
 $('inBook').addEventListener('change', () => {
@@ -2302,7 +2316,7 @@ $('emptyAdd').addEventListener('click', () => openEdit());
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (splitMode) { toggleSplit(false); return; }
-    if ($('editOverlay').classList.contains('open')) closeEdit();
+    if ($('editOverlay').classList.contains('open')) closeEdit(true);
     else if ($('confirmOverlay').classList.contains('open')) closeConfirm();
     else if ($('collOverlay').classList.contains('open')) closeCollManager();
     else if (moreMenu.classList.contains('open')) toggleMenu(false);
