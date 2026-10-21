@@ -1785,7 +1785,7 @@ function openDetail(n) {
         body.appendChild(row);
       }
     }
-    const sorted = [...n.ref.items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const sorted = [...n.ref.items].sort((a, b) => a.createdAt.localeCompare(b.createdAt)); // 按时间正序:最早在前
     for (const e of sorted) {
       const it = el('div', 'exlist-item');
       it.appendChild(el('div', 'q', e.text));
@@ -1926,7 +1926,7 @@ function appendBookGroups(container, blist, q, forceOpen) {
     gh.append(gt, el('span', 'a', b.author || ''), el('span', 'n', items.length + ' 条'));
     container.appendChild(gh);
     if (!open) continue;
-    const sorted = [...items].sort((a, z) => z.createdAt.localeCompare(a.createdAt));
+    const sorted = [...items].sort((a, z) => a.createdAt.localeCompare(z.createdAt)); // 按时间正序:最早在前
     for (const e of sorted) {
       const it = el('div', 'exlist-item');
       it.appendChild(el('div', 'q', e.text));
