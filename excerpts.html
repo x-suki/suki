@@ -1104,7 +1104,10 @@ function rebuild(fit, fresh, seed) {
         n.r = clamp(3.6 + Math.sqrt(chars) * 0.62, 4.5, 15);
       } else n.r = 4.5;
     } else if (n.type === 'book') {
-      n.r = clamp(7 + Math.sqrt(n.ref.items.length) * 3.4, 9, 26);
+      // 对数标尺:1~5 本低段拉开差距,10 本以上边际递减,20 条封顶(特大者彼此几乎不再变);
+      // 下限 17 恒压过星图面摘录节点上限 15——最小的书也明显大于最大的摘录
+      const c = n.ref.items.length;
+      n.r = clamp(17 + 9 * Math.log(1 + c / 1.2) / Math.log(1 + 20 / 1.2), 17, 26);
     } else {
       n.r = clamp(6 + Math.sqrt(n.deg) * 2.6, 8, 18);
     }
