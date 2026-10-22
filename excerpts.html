@@ -1077,14 +1077,34 @@ function rebuild(fit, fresh, seed) {
     return n;
   };
 
-  // 书籍与主题节点:书籍均匀圆周起步(确定性,避免随机扎堆掉进坏布局);星图面(fresh)书籍居中、主题外环
+  // 数据级预判:同一 tag 出现在 ≥2 本书的摘录上 = 跨书公用主题;按书统计公用/自由摘录比重
+  const tagBooks = new Map(); // tagKey → 引用它的 bookKey 集
+  for (const e of src) for (const t of e.tags) {
+    const k = t.toLowerCase();
+    if (!tagBooks.has(k)) tagBooks.set(k, new Set());
+    tagBooks.get(k).add(bookKey(e.book));
+  }
+  const isCrossTag = (t) => (tagBooks.get(t.toLowerCase()) || new Set()).size >= 2;
+  const bookStat = new Map(); // bookKey → {pub, free}
+  for (const e of src) {
+    const bk = bookKey(e.book);
+    const st = bookStat.get(bk) || { pub: 0, free: 0 };
+    if (e.tags.some(isCrossTag)) st.pub++; else st.free++;
+    bookStat.set(bk, st);
+  }
+  // 书籍与主题节点:书籍均匀圆周起步(确定性,避免随机扎堆掉进坏布局);星图面(fresh 单书)书籍居中、主题外环
   const ringR = 150 + Math.sqrt(src.length + 2) * 34;
   const bookArr = [...books.values()];
   bookArr.forEach((b, i) => {
     const n = mk('b:' + bookKey(b.title), 'book', '《' + b.title + '》', b);
-    if (fresh) { n.x = 0; n.y = 0; }
+    const st = bookStat.get(bookKey(b.title)) || { pub: 0, free: 1 };
+    n.freeRatio = st.free / (st.pub + st.free); // 自由占比:step 里公用摘录的书侧引力与之成正比
+    if (fresh) {
+      if (bookArr.length > 1) { const a = (i / bookArr.length) * Math.PI * 2 - Math.PI / 2; n.x = Math.cos(a) * ringR; n.y = Math.sin(a) * ringR; }
+      else { n.x = 0; n.y = 0; }
+    }
     else if (!keep.has(n.id)) {
-      const a = (i / bookArr.length) * Math.PI * 2 - Math.PI / 2; // 均匀圆周起步:同侧扎堆导致的坏布局不再出现
+      const a = (i / bookArr.length) * Math.PI * 2 - Math.PI / 2;
       n.x = Math.cos(a) * ringR; n.y = Math.sin(a) * ringR;
     }
   });
@@ -1095,18 +1115,39 @@ function rebuild(fit, fresh, seed) {
       n.x = Math.cos(a) * ringR * 1.15; n.y = Math.sin(a) * ringR * 1.15;
     }
   }
-  // 摘录节点:绕所属书黄金角扇形起步(确定性布局,消除随机起步的坏盆地);星图面书籍居中原点,同一套扇形适用
-  const fan = new Map(); // bookKey → 已放摘录数
+  // 摘录节点初始分布:自由摘录在书的外侧扇形(公用占比越大越收拢成正外侧配重),跨书摘录在内侧朝书间走廊;
+  // 书在原点(星图面)退回黄金角扇形。只对强制起盘/新节点生效,已保留布局不重排
+  const fan = new Map(), fanFree = new Map(), fanPub = new Map(); // bookKey → 计数(确定性扇位)
   for (const e of src) {
     const id = 'e:' + e.id;
     const n = mk(id, 'excerpt', truncate(e.text.replace(/\s+/g, ' '), 18), e);
-    {
+    if (!fresh && keep.has(n.id)) { /* 保留原位 */ }
+    else {
       const bk = bookKey(e.book);
-      const cnt = fan.get(bk) || 0; fan.set(bk, cnt + 1);
       const bn = G.nodeById.get('b:' + bk);
-      const cx = bn ? bn.x : 0, cy = bn ? bn.y : 0;
-      const a = cnt * 2.399963, rr = 62 + (cnt % 3) * 15; // 黄金角扇叶:均匀不重叠
-      n.x = cx + Math.cos(a) * rr; n.y = cy + Math.sin(a) * rr;
+      const st = bookStat.get(bk) || { pub: 0, free: 1 };
+      const cross = e.tags.some(isCrossTag);
+      const ol = bn ? Math.hypot(bn.x, bn.y) : 0;
+      if (ol < 1) { // 星图面:书籍在原点,黄金角扇形
+        const cnt = fan.get(bk) || 0; fan.set(bk, cnt + 1);
+        const a = cnt * 2.399963, rr = 62 + (cnt % 3) * 15;
+        n.x = Math.cos(a) * rr; n.y = Math.sin(a) * rr;
+      } else {
+        const base = Math.atan2(bn.y, bn.x); // 径向外侧方向
+        if (cross) { // 公用摘录:内侧,起点即朝书间走廊
+          const c = fanPub.get(bk) || 0; fanPub.set(bk, c + 1);
+          const half = Math.PI * 0.22, m = Math.max(st.pub, 1);
+          const a = base + Math.PI - half + ((c + 0.5) * (2 * half) / m);
+          n.x = bn.x + Math.cos(a) * 118; n.y = bn.y + Math.sin(a) * 118;
+        } else { // 自由摘录:外侧扇形,张角随自由占比放大
+          const c = fanFree.get(bk) || 0; fanFree.set(bk, c + 1);
+          const fr = st.free / (st.pub + st.free);
+          const half = Math.PI * (0.25 + 0.5 * fr), m = Math.max(st.free, 1);
+          const a = base - half + ((c + 0.5) * (2 * half) / m);
+          const rr = 62 + (c % 3) * 15;
+          n.x = bn.x + Math.cos(a) * rr; n.y = bn.y + Math.sin(a) * rr;
+        }
+      }
     }
     G.edges.push({ s: n, t: G.nodeById.get('b:' + bookKey(e.book)), hub: 'book' });
     for (const t of e.tags) {
@@ -1127,6 +1168,13 @@ function rebuild(fit, fresh, seed) {
       tbooks.get(t).add(bookKey(x.ref.book));
     }
     for (const [t, bs] of tbooks) t.cross = bs.size >= 2;
+    // 公用主题连边的单向引力权重:该书对公用主题的拉力 ∝ 自由占比(0.3 下限),公用占比越大越弱
+    for (const e of G.edges) {
+      if (e.hub !== 'tag' || !(e.s.cross || e.t.cross)) continue;
+      const x = e.s.type === 'excerpt' ? e.s : e.t;
+      const bn = G.nodeById.get('b:' + bookKey(x.ref.book));
+      e.w = 0.3 + 0.7 * ((bn && bn.freeRatio) ?? 1);
+    }
   }
   // 新进主题节点放到其摘录邻居的质心(确定性):跨书主题一步到位悬到书间,叶主题贴住挂点
   for (const n of G.nodes) {
@@ -1170,7 +1218,7 @@ function rebuild(fit, fresh, seed) {
   ensureLoop();
 }
 
-/* ---------- 书籍星图面 ---------- */
+/* ---------- 书籍星图面 / 合集星图 ---------- */
 function enterBookView(title) {
   if (G.bookView && bookKey(G.bookView) === bookKey(title)) return;
   if (!state.excerpts.some(e => bookKey(e.book) === bookKey(title))) return;
@@ -1245,12 +1293,21 @@ function step() {
     const n1 = e.s, n2 = e.t;
     const dx = n2.x - n1.x, dy = n2.y - n1.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
-    const crossE = e.s.cross || e.t.cross;                    // 跨书共享主题的边:基础长度加长(+70)、软弹簧 → 主题悬到书间真空中央
-    const leafT = e.hub === 'tag' && !crossE && (n1.deg === 1 || n2.deg === 1); // 孤主题(只挂一条摘抄):收紧防拖尾
+    const crossE = e.s.cross || e.t.cross;                    // 跨书共享主题的边:基础长度加长(+148)、最软、单向(只拉主题)
+    const leafT = e.hub === 'tag' && !crossE && (n1.deg === 1 || n2.deg === 1); // 孤主题(只挂一条摘录):收紧防拖尾
     const L = n1.r + n2.r + (e.hub === 'book' ? 52 : crossE ? 190 : leafT ? 24 : 30);
-    const f = (d - L) * (e.hub === 'book' ? 0.05 : crossE ? 0.03 : leafT ? 0.08 : 0.04) * a; // 书籍/书内边硬(聚合度),跨书边软(伸向中央)
+    const k = e.hub === 'book' ? 0.05 : crossE ? 0.02 : leafT ? 0.08 : 0.04; // 书侧硬边(聚合度);跨书边张力继续减弱
+    const f = (d - L) * k * a;
     const fx = dx / d * f, fy = dy / d * f;
-    n1.vx += fx; n1.vy += fy; n2.vx -= fx; n2.vy -= fy;
+    if (crossE) {
+      // 单向弹簧:公用主题被拉向其摘录(权重 = 0.3+0.7×该书自由占比,公用占比越大引力越弱),
+      // 摘录与书不受公用节点反作用 → 中心书籍节点的位置基本不受公用节点约束
+      const tN = e.s.cross ? e.s : e.t, xN = tN === e.s ? e.t : e.s;
+      const w = e.w ?? 1;
+      tN.vx += (xN.x - tN.x) / d * f * w; tN.vy += (xN.y - tN.y) / d * f * w;
+    } else {
+      n1.vx += fx; n1.vy += fy; n2.vx -= fx; n2.vy -= fy;
+    }
   }
   // 向心 + 积分
   const cp = G.bookView ? 0.0018 : 0.0012; // 总览/合集视图向心减弱:书间真空带再放开;星图面保持原强度
