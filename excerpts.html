@@ -876,6 +876,17 @@ function findColl(name) {
 }
 function collHasBook(c, title) { return c.books.some(b => bookKey(b) === bookKey(title)); }
 function collAddBook(c, title) { if (!collHasBook(c, title)) c.books.push(normBook(title)); }
+function collMembers(f) { // 合集星图成员 bookKey 集:作者合集按作者名派生;手动按 books(悬空成员被现存摘录自然滤除)
+  const ks = new Set();
+  if (f.auto) {
+    const k = f.name.toLowerCase();
+    for (const e of state.excerpts) if ((e.author || '').toLowerCase() === k) ks.add(bookKey(e.book));
+  } else {
+    const want = new Set(f.books.map(bookKey));
+    for (const e of state.excerpts) if (want.has(bookKey(e.book))) ks.add(bookKey(e.book));
+  }
+  return ks;
+}
 
 /* ============================================================
  * 图:节点 / 边 / 力导向模拟 / 渲染
@@ -895,18 +906,19 @@ const G = {
   searchQuery: '', searchHits: [],
   focus: null,             // {t1:Set, t2:Set}
   bookView: null,          // 星图面:null=全部;否则为书名,图上只保留该书的摘录与主题
+  collView: null,          // 合集星图:null=非合集视图;否则为合集过滤对象(手动合集本体或 {auto:true,name}),图上只保留合集成员的摘录与主题
 };
 
 /* ---------- 标签页(多开星图页) ---------- */
 const tabs = [];              // {id, snap, dirty}  snap = 该页的图状态快照
 let activeTabId = null, tabSeq = 0, splitMode = false;
-const tabTitle = (bv) => (bv ? '《' + bv + '》' : '全部星图');
+const tabTitle = (bv, cv) => (cv ? '「' + cv.name + '」' : (bv ? '《' + bv + '》' : '全部星图'));
 function freshGraphSnap(book) {
   return {
     nodes: [], nodeById: new Map(), edges: [], alpha: 1, running: false,
     view: { k: 1, ox: 0, oy: 0 }, hoverId: null, selectedId: null,
     dragNode: null, panning: null, downInfo: null,
-    searchQuery: '', searchHits: [], focus: null, bookView: book || null,
+    searchQuery: '', searchHits: [], focus: null, bookView: book || null, collView: null,
   };
 }
 function snapGraph() {
@@ -915,7 +927,7 @@ function snapGraph() {
     view: { k: G.view.k, ox: G.view.ox, oy: G.view.oy },
     hoverId: G.hoverId, selectedId: G.selectedId,
     dragNode: null, panning: null, downInfo: null,
-    searchQuery: G.searchQuery, searchHits: G.searchHits, focus: G.focus, bookView: G.bookView,
+    searchQuery: G.searchQuery, searchHits: G.searchHits, focus: G.focus, bookView: G.bookView, collView: G.collView,
   };
 }
 function restoreGraph(s) {
@@ -925,7 +937,7 @@ function restoreGraph(s) {
   G.hoverId = s.hoverId; G.selectedId = s.selectedId;
   G.dragNode = null; G.panning = null; G.downInfo = null;
   G.searchQuery = s.searchQuery; G.searchHits = s.searchHits;
-  G.focus = s.focus; G.bookView = s.bookView;
+  G.focus = s.focus; G.bookView = s.bookView; G.collView = s.collView;
 }
 function stepSnap(s) {  // 同屏模式:让非活动页的物理也走下去(临时换入全局 step 再换出)
   const keep = { nodes: G.nodes, edges: G.edges, alpha: G.alpha, view: G.view };
@@ -970,7 +982,7 @@ function activateTab(t) {
   t.dirty = false;
   $('search').value = G.searchQuery;
   $('searchCount').textContent = G.searchQuery.trim() ? (G.searchHits.length ? G.searchHits.length + ' 个结果' : '无结果') : '';
-  $('bookBack').hidden = !G.bookView;
+  $('bookBack').hidden = !(G.bookView || G.collView);
   computeFocus(); updateStats(); renderList(); renderTabbar(); render(); ensureLoop();
 }
 function newTab() {
@@ -1003,10 +1015,11 @@ function renderTabbar() {
   const bar = $('tabs');
   bar.textContent = '';
   for (const t of tabs) {
-    const bv = t.id === activeTabId ? G.bookView : t.snap.bookView;
-    const d = el('div', 'tab' + (t.id === activeTabId ? ' active' : ''));
-    d.title = t.id === activeTabId ? '当前星图页' : '切换到「' + tabTitle(bv) + '」';
-    d.appendChild(el('span', 'tt', tabTitle(bv) + (t.dirty ? ' *' : '')));
+    const live = t.id === activeTabId;
+    const bv = live ? G.bookView : t.snap.bookView, cv = live ? G.collView : t.snap.collView;
+    const d = el('div', 'tab' + (live ? ' active' : ''));
+    d.title = live ? '当前星图页' : '切换到「' + tabTitle(bv, cv) + '」';
+    d.appendChild(el('span', 'tt', tabTitle(bv, cv) + (t.dirty ? ' *' : '')));
     const x = el('span', 'x', '✕');
     x.title = '关闭此页(仅剩一页时为重置)';
     x.onclick = (e) => { e.stopPropagation(); closeTab(t.id); };
@@ -1038,8 +1051,13 @@ function resize() {
 
 /* ---------- 构图 ---------- */
 function rebuild(fit, fresh, seed) {
-  const src = G.bookView ? state.excerpts.filter(e => bookKey(e.book) === bookKey(G.bookView)) : state.excerpts;
-  if (G.bookView && !src.length) { G.bookView = null; $('bookBack').hidden = true; rebuild(true); return; } // 本书摘录被删空,退回全部
+  let src = state.excerpts;
+  if (G.bookView) src = state.excerpts.filter(e => bookKey(e.book) === bookKey(G.bookView));
+  else if (G.collView) {
+    if (!G.collView.auto && !state.collections.some(c => c.id === G.collView.id)) G.collView = null; // 合集被解散/导入替换,退回全部
+    else { const ks = collMembers(G.collView); src = state.excerpts.filter(e => ks.has(bookKey(e.book))); }
+  }
+  if ((G.bookView || G.collView) && !src.length) { G.bookView = null; G.collView = null; $('bookBack').hidden = true; rebuild(true); return; } // 焦点书/合集摘录被删空,退回全部
   const keep = seed ? seed : new Map();
   if (!seed) for (const n of G.nodes) keep.set(n.id, n);
   G.nodes = []; G.nodeById = new Map(); G.edges = [];
@@ -1097,6 +1115,18 @@ function rebuild(fit, fresh, seed) {
   }
   // 半径:书籍按持有摘录数;摘录在星图面内按字数(总览里恒为小星);主题按度数
   for (const e of G.edges) { e.s.deg++; e.t.deg++; }
+  // 跨书共享主题标记:同一主题被 ≥2 本书的摘录引用 → 其连边用更长静息长度(step),
+  // 让主题悬到书团之间真空的中央,提高每本书的聚合感与书间的独立感
+  {
+    const tbooks = new Map(); // 主题节点 → 引用它的摘录所属 bookKey 集
+    for (const e of G.edges) {
+      if (e.hub !== 'tag') continue;
+      const t = e.s.type === 'topic' ? e.s : e.t, x = e.s.type === 'topic' ? e.t : e.s;
+      if (!tbooks.has(t)) tbooks.set(t, new Set());
+      tbooks.get(t).add(bookKey(x.ref.book));
+    }
+    for (const [t, bs] of tbooks) t.cross = bs.size >= 2;
+  }
   for (const n of G.nodes) {
     if (n.type === 'excerpt') {
       if (G.bookView) {
@@ -1104,12 +1134,13 @@ function rebuild(fit, fresh, seed) {
         n.r = clamp(3.6 + Math.sqrt(chars) * 0.62, 4.5, 15);
       } else n.r = 4.5;
     } else if (n.type === 'book') {
-      // 对数标尺:1~5 本低段拉开差距,10 本以上边际递减,20 条封顶(特大者彼此几乎不再变);
-      // 极小书(1~2 条)降到摘录节点量级,允许被长摘录反超
+      // 对数标尺:低段拉开差距,10 本以上边际递减,20 条封顶(特大者彼此几乎不再变);
+      // 极小书下限再降(13.4→11.0),增长率同步调大,1~2 条的小书与较大书区分更明显
       const c = n.ref.items.length;
-      n.r = clamp(10 + 16 * Math.log(1 + c / 1.2) / Math.log(1 + 20 / 1.2), 12, 26);
+      n.r = clamp(7 + 19 * Math.log(1 + c / 1.2) / Math.log(1 + 20 / 1.2), 10, 26);
     } else {
-      n.r = clamp(6 + Math.sqrt(n.deg) * 2.6, 8, 18);
+      // 主题整体缩小一档(r(2) 9.7→7.8,上限 18→11),仍压过摘录小星、不越过极小书
+      n.r = clamp(5 + Math.sqrt(n.deg) * 2.0, 7, 11);
     }
   }
 
@@ -1131,7 +1162,7 @@ function rebuild(fit, fresh, seed) {
 function enterBookView(title) {
   if (G.bookView && bookKey(G.bookView) === bookKey(title)) return;
   if (!state.excerpts.some(e => bookKey(e.book) === bookKey(title))) return;
-  G.bookView = title;
+  G.bookView = title; G.collView = null;
   listTab = 'books';
   G.selectedId = null; G.hoverId = null;
   G.searchQuery = ''; $('search').value = ''; $('searchCount').textContent = '';
@@ -1149,6 +1180,29 @@ function exitBookView() {
   rebuild(true);
   toast('已返回全部星图');
 }
+function enterCollView(f) { // 列表点合集行进入:星图切到该合集内部,列表同步进该合集目录
+  const same = G.collView && ((f.auto && G.collView.auto && G.collView.name.toLowerCase() === f.name.toLowerCase())
+    || (!f.auto && !G.collView.auto && G.collView.id === f.id));
+  if (same) return;
+  if (!collMembers(f).size) return; // 空合集(无现存摘录)不进星图
+  G.collView = f; G.bookView = null;
+  listTab = 'colls'; listCollFilter = f;
+  G.selectedId = null; G.hoverId = null;
+  G.searchQuery = ''; $('search').value = ''; $('searchCount').textContent = '';
+  closeDetail(); toggleMenu(false); // 列表是目录,进合集星图不收起
+  $('bookBack').hidden = false;
+  rebuild(true, true);
+  toast('已进入「' + f.name + '」星图,点「‹ 全部星图」返回');
+}
+function exitCollView() {
+  if (!G.collView) return;
+  G.collView = null; listCollFilter = null;
+  G.selectedId = null; G.hoverId = null;
+  closeDetail(); // 列表保持打开,回到合集目录根
+  $('bookBack').hidden = true;
+  rebuild(true);
+  toast('已返回全部星图');
+}
 
 /* ---------- 模拟 ---------- */
 function step() {
@@ -1160,10 +1214,13 @@ function step() {
       const n2 = G.nodes[j];
       let dx = n2.x - n1.x, dy = n2.y - n1.y;
       let d2 = dx * dx + dy * dy;
-      if (d2 > 67600) continue;             // 260² 之外不计算
+      const bookPair = n1.type === 'book' && n2.type === 'book';
+      if (d2 > (bookPair ? 211600 : 67600)) continue; // 260² 之外不计算;书籍对放宽到 460²(真空带内仍互推,防链条折叠)
       if (d2 < 0.01) { d2 = 1; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
       const d = Math.sqrt(d2);
       let f = (1200 * (n1.r + n2.r + 12)) / d2 * a;           // 牛顿斥力(弱化:1700→1200),动态更温和
+      if (bookPair) f *= 6;                                   // 书籍中枢额外互推:把书团(星云)之间的真空带拉开
+      else if (n1.type === 'excerpt' && n2.type === 'excerpt' && n1.ref.book === n2.ref.book) f *= 0.55; // 同书摘抄互斥减弱:星云收紧(碰撞推离仍在,不会重合)
       const minD = n1.r + n2.r + 14;
       if (d < minD) f += (minD - d) * 0.055;                  // 碰撞推离
       else if (d < minD + 36) f += (minD + 36 - d) * 0.00115; // 常驻微弱斥力:不分类型、不随 alpha 衰减,活动期任何节点对都温和互推;峰值力 <0.042,压在停稳阈值下
@@ -1176,8 +1233,10 @@ function step() {
     const n1 = e.s, n2 = e.t;
     const dx = n2.x - n1.x, dy = n2.y - n1.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
-    const L = n1.r + n2.r + (e.hub === 'book' ? 52 : 42);
-    const f = (d - L) * 0.03 * a;
+    const crossE = e.s.cross || e.t.cross;                    // 跨书共享主题的边:基础长度加长(+70)、软弹簧 → 主题悬到书间真空中央
+    const leafT = e.hub === 'tag' && !crossE && (n1.deg === 1 || n2.deg === 1); // 孤主题(只挂一条摘抄):收紧防拖尾
+    const L = n1.r + n2.r + (e.hub === 'book' ? 52 : crossE ? 112 : leafT ? 24 : 30);
+    const f = (d - L) * (e.hub === 'book' ? 0.05 : crossE ? 0.03 : leafT ? 0.08 : 0.04) * a; // 书籍/书内边硬(聚合度),跨书边软(伸向中央)
     const fx = dx / d * f, fy = dy / d * f;
     n1.vx += fx; n1.vy += fy; n2.vx -= fx; n2.vy -= fy;
   }
@@ -1388,7 +1447,7 @@ function renderSplit() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.font = '600 12px system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const title = (isActive ? '● ' : '') + tabTitle(isActive ? G.bookView : t.snap.bookView) + (t.dirty ? ' *' : '');
+    const title = (isActive ? '● ' : '') + tabTitle(isActive ? G.bookView : t.snap.bookView, isActive ? G.collView : t.snap.collView) + (t.dirty ? ' *' : '');
     const tw = ctx.measureText(title).width;
     ctx.fillStyle = C.labelchip;
     ctx.fillRect(x0 + w / 2 - tw / 2 - 10, labelY - 11, tw + 20, 22);
@@ -1849,11 +1908,11 @@ function renderList() {
   const tC = el('span', 'ltab' + (listTab === 'colls' ? ' on' : ''));
   tC.append(document.createTextNode('合集'), el('span', 'ltabc', String(nColls)));
   tC.title = '合集目录';
-  tC.onclick = () => { listTab = 'colls'; listCollFilter = null; renderList(); };
+  tC.onclick = () => { listTab = 'colls'; listCollFilter = null; if (G.collView) exitCollView(); else renderList(); };
   const tB = el('span', 'ltab' + (listTab !== 'colls' ? ' on' : ''));
   tB.append(document.createTextNode('书籍'), el('span', 'ltabc', String(all.length)));
   tB.title = '书籍目录';
-  tB.onclick = () => { listTab = 'books'; if (G.bookView) exitBookView(); renderList(); };
+  tB.onclick = () => { listTab = 'books'; if (G.bookView) exitBookView(); else if (G.collView) exitCollView(); else renderList(); };
   tabs.append(tC, tB);
   if (editorMode && listTab === 'colls') {
     const mg = el('span', 'sec-act', '管理');
@@ -1866,8 +1925,8 @@ function renderList() {
   if (listCollFilter) {
     const cr = el('div', 'crumbrow');
     const back = el('span', 'backbtn', '‹ 全部合集');
-    back.title = '返回合集目录';
-    back.onclick = () => { listCollFilter = null; renderList(); };
+    back.title = '返回合集目录(并退出合集星图)';
+    back.onclick = () => { listCollFilter = null; if (G.collView) exitCollView(); else renderList(); };
     cr.appendChild(back);
     body.appendChild(cr);
   }
@@ -1881,16 +1940,16 @@ function renderList() {
         const nIn = all.filter(b => c.books.some(bb => bookKey(bb) === bookKey(b.title))).length; // 现存书籍数(悬空成员不计)
         const row = el('div', 'coll-item');
         row.append(el('i', 'hex'), el('span', 'nm', c.name), el('span', 'cnt', nIn + ' 本'), el('span', 'go', '›'));
-        row.title = '进入合集「' + c.name + '」';
-        row.onclick = () => { listCollFilter = c; renderList(); };
+        row.title = '进入合集「' + c.name + '」(星图与目录)';
+        row.onclick = () => { listCollFilter = c; enterCollView(c); renderList(); };
         body.appendChild(row);
       }
       for (const a of authorColls) {
         const nIn = all.filter(b => (b.author || '').trim() === a).length;
         const row = el('div', 'coll-item');
         row.append(el('i', 'hex'), el('span', 'nm', a), el('span', 'cnt', nIn + ' 本'), el('span', 'go', '›'));
-        row.title = '进入作者合集「' + a + '」';
-        row.onclick = () => { listCollFilter = { auto: true, name: a }; renderList(); };
+        row.title = '进入作者合集「' + a + '」(星图与目录)';
+        row.onclick = () => { listCollFilter = { auto: true, name: a }; enterCollView({ auto: true, name: a }); renderList(); };
         body.appendChild(row);
       }
     }
@@ -1956,7 +2015,8 @@ function closeList() { $('listPanel').classList.remove('open'); }
 
 /* ---------- 统计 / 图例 / datalist ---------- */
 function updateStats() {
-  const src = G.bookView ? state.excerpts.filter(e => bookKey(e.book) === bookKey(G.bookView)) : state.excerpts;
+  const src = G.bookView ? state.excerpts.filter(e => bookKey(e.book) === bookKey(G.bookView))
+    : (G.collView ? (() => { const ks = collMembers(G.collView); return state.excerpts.filter(e => ks.has(bookKey(e.book))); })() : state.excerpts);
   const { books, tags } = derive(src);
   const nE = src.length;
   $('stats').textContent = '';
@@ -1966,6 +2026,10 @@ function updateStats() {
     s.appendChild(el('b', null, '《' + G.bookView + '》'));
     s.appendChild(document.createTextNode(' · '));
     parts = [[nE, '条摘录'], [tags.size, '个主题']];
+  } else if (G.collView) {
+    s.appendChild(el('b', null, '「' + G.collView.name + '」'));
+    s.appendChild(document.createTextNode(' · '));
+    parts = [[books.size, '本书'], [nE, '条摘录'], [tags.size, '个主题']];
   } else {
     parts = [[books.size, '本书'], [nE, '条摘录'], [tags.size, '个主题']];
   }
@@ -2305,7 +2369,7 @@ $('btnAdd').addEventListener('click', () => {
   openEdit(null, G.bookView, (b && b.author) || '');
 });
 $('btnList').addEventListener('click', () => $('listPanel').classList.contains('open') ? closeList() : openList());
-$('bookBack').addEventListener('click', exitBookView);
+$('bookBack').addEventListener('click', () => { if (G.bookView) exitBookView(); else exitCollView(); });
 $('tabNew').addEventListener('click', newTab);
 $('tabSplit').addEventListener('click', () => toggleSplit());
 $('listClose').addEventListener('click', closeList);
@@ -2334,6 +2398,7 @@ document.addEventListener('keydown', (e) => {
     else if ($('detailPanel').classList.contains('open')) { G.selectedId = null; closeDetail(); computeFocus(); render(); }
     else if ($('listPanel').classList.contains('open')) closeList();
     else if (G.bookView) exitBookView();
+    else if (G.collView) exitCollView();
   }
   if (e.key === '/' && document.activeElement && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
     e.preventDefault();
@@ -2356,7 +2421,7 @@ try {
     }).observe(pe, { attributes: true, attributeFilter: ['data-theme'] });
   }
 } catch (e) { /* 跨源(本地 file://)无父页可看,忽略 */ }
-/* 测试辅助: ?ui=list|detail|add|menu 打开对应界面; ?book=书名 直进该书星图面; ?notrans=1 禁用过渡(截图用) */
+/* 测试辅助: ?ui=list|detail|add|menu 打开对应界面; ?book=书名 直进该书星图面; ?coll=合集名 直进该合集星图; ?notrans=1 禁用过渡(截图用) */
 const qs = new URLSearchParams(location.search);
 if (qs.get('notrans') === '1') {
   const st = document.createElement('style');
@@ -2389,6 +2454,11 @@ if (qs.get('notrans') === '1') {
     else if (ui === 'menu') toggleMenu(true);
     const bk = qs.get('book');
     if (bk) enterBookView(bk);
+    const ck = qs.get('coll'); // ?coll=合集名 直进该合集星图(手动合集按名匹配,否则按作者名视为作者合集)
+    if (ck && !bk) {
+      const c = state.collections.find(x => x.name === ck) || { auto: true, name: ck };
+      if (collMembers(c).size) enterCollView(c);
+    }
   }
 })();
 </script>
