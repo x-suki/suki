@@ -1089,7 +1089,8 @@ function rebuild(fit, fresh, seed) {
   for (const e of src) {
     const bk = bookKey(e.book);
     const st = bookStat.get(bk) || { pub: 0, free: 0 };
-    if (e.tags.some(isCrossTag)) st.pub++; else st.free++;
+    // 公用摘录 = 全部 tag 均跨书;混有本地 tag 的相对自由(本地主题链把它牢牢锚在书侧)
+    if (e.tags.length && e.tags.every(isCrossTag)) st.pub++; else st.free++;
     bookStat.set(bk, st);
   }
   // 书籍与主题节点:书籍均匀圆周起步(确定性,避免随机扎堆掉进坏布局);星图面(fresh 单书)书籍居中、主题外环
@@ -1115,8 +1116,26 @@ function rebuild(fit, fresh, seed) {
       n.x = Math.cos(a) * ringR * 1.15; n.y = Math.sin(a) * ringR * 1.15;
     }
   }
-  // 摘录节点初始分布:自由摘录在书的外侧扇形(公用占比越大越收拢成正外侧配重),跨书摘录在内侧朝书间走廊;
-  // 书在原点(星图面)退回黄金角扇形。只对强制起盘/新节点生效,已保留布局不重排
+  // 每书的公用中心:与其共享 tag 的其他书籍环位平均 → 自由叶放其反侧(远心位),公用摘录朝其正侧
+  const pubCenter = new Map(); // bookKey → {x, y}
+  for (const b of bookArr) {
+    const bk = bookKey(b.title);
+    const bn = G.nodeById.get('b:' + bk);
+    if (!bn || Math.hypot(bn.x, bn.y) < 1) continue; // 星图面单书:无公用方向
+    let sx = 0, sy = 0, wsum = 0;
+    for (const [, bset] of tagBooks) {
+      if (!bset.has(bk) || bset.size < 2) continue;
+      for (const obk of bset) {
+        if (obk === bk) continue;
+        const on = G.nodeById.get('b:' + obk);
+        if (!on) continue;
+        sx += on.x; sy += on.y; wsum++;
+      }
+    }
+    if (wsum) pubCenter.set(bk, { x: sx / wsum, y: sy / wsum });
+  }
+  // 摘录节点初始分布:自由摘录在"公用中心过书连线的另一侧"(远心位,张角随自由占比放大),
+  // 全跨书摘录朝公用中心;书在原点(星图面)退回黄金角扇形。只对强制起盘/新节点生效,已保留布局不重排
   const fan = new Map(), fanFree = new Map(), fanPub = new Map(); // bookKey → 计数(确定性扇位)
   for (const e of src) {
     const id = 'e:' + e.id;
@@ -1126,20 +1145,30 @@ function rebuild(fit, fresh, seed) {
       const bk = bookKey(e.book);
       const bn = G.nodeById.get('b:' + bk);
       const st = bookStat.get(bk) || { pub: 0, free: 1 };
-      const cross = e.tags.some(isCrossTag);
+      const cross = e.tags.length > 0 && e.tags.every(isCrossTag); // 公用摘录:全部 tag 均跨书
       const ol = bn ? Math.hypot(bn.x, bn.y) : 0;
       if (ol < 1) { // 星图面:书籍在原点,黄金角扇形
         const cnt = fan.get(bk) || 0; fan.set(bk, cnt + 1);
         const a = cnt * 2.399963, rr = 62 + (cnt % 3) * 15;
         n.x = Math.cos(a) * rr; n.y = Math.sin(a) * rr;
       } else {
-        const base = Math.atan2(bn.y, bn.x); // 径向外侧方向
-        if (cross) { // 公用摘录:内侧,起点即朝书间走廊
+        const pc = pubCenter.get(bk);
+        let ux, uy; // 自由侧单位向量:公用中心 → 书 的延长线
+        if (pc) {
+          const ddx = bn.x - pc.x, ddy = bn.y - pc.y;
+          const dl = Math.hypot(ddx, ddy) || 1;
+          ux = ddx / dl; uy = ddy / dl;
+        } else { ux = bn.x / ol; uy = bn.y / ol; } // 无公用联结:径向外侧
+        if (cross) { // 全跨书摘录:朝公用中心一侧
+          const tx = pc ? pc.x - bn.x : -ux, ty = pc ? pc.y - bn.y : -uy;
+          const tl = Math.hypot(tx, ty) || 1;
+          const base = Math.atan2(ty, tx);
           const c = fanPub.get(bk) || 0; fanPub.set(bk, c + 1);
           const half = Math.PI * 0.22, m = Math.max(st.pub, 1);
-          const a = base + Math.PI - half + ((c + 0.5) * (2 * half) / m);
+          const a = base - half + ((c + 0.5) * (2 * half) / m);
           n.x = bn.x + Math.cos(a) * 118; n.y = bn.y + Math.sin(a) * 118;
-        } else { // 自由摘录:外侧扇形,张角随自由占比放大
+        } else { // 自由摘录:远心侧扇形
+          const base = Math.atan2(uy, ux);
           const c = fanFree.get(bk) || 0; fanFree.set(bk, c + 1);
           const fr = st.free / (st.pub + st.free);
           const half = Math.PI * (0.25 + 0.5 * fr), m = Math.max(st.free, 1);
