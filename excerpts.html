@@ -1077,16 +1077,17 @@ function rebuild(fit, fresh, seed) {
     return n;
   };
 
-  // 书籍与主题节点:初次随机散布在圆环上;星图面(fresh)书籍居中、主题外环
+  // 书籍与主题节点:书籍均匀圆周起步(确定性,避免随机扎堆掉进坏布局);星图面(fresh)书籍居中、主题外环
   const ringR = 150 + Math.sqrt(src.length + 2) * 34;
-  for (const b of books.values()) {
+  const bookArr = [...books.values()];
+  bookArr.forEach((b, i) => {
     const n = mk('b:' + bookKey(b.title), 'book', '《' + b.title + '》', b);
     if (fresh) { n.x = 0; n.y = 0; }
     else if (!keep.has(n.id)) {
-      const a = Math.random() * Math.PI * 2;
+      const a = (i / bookArr.length) * Math.PI * 2 - Math.PI / 2; // 均匀圆周起步:同侧扎堆导致的坏布局不再出现
       n.x = Math.cos(a) * ringR; n.y = Math.sin(a) * ringR;
     }
-  }
+  });
   for (const t of tags.values()) {
     const n = mk('t:' + t.name.toLowerCase(), 'tag', '#' + t.name, t);
     if (fresh || !keep.has(n.id)) {
@@ -1094,18 +1095,18 @@ function rebuild(fit, fresh, seed) {
       n.x = Math.cos(a) * ringR * 1.15; n.y = Math.sin(a) * ringR * 1.15;
     }
   }
-  // 摘录节点:新生成的挂在所属书籍附近;星图面(fresh)从书籍周围的圆盘起步
+  // 摘录节点:绕所属书黄金角扇形起步(确定性布局,消除随机起步的坏盆地);星图面书籍居中原点,同一套扇形适用
+  const fan = new Map(); // bookKey → 已放摘录数
   for (const e of src) {
     const id = 'e:' + e.id;
     const n = mk(id, 'excerpt', truncate(e.text.replace(/\s+/g, ' '), 18), e);
-    if (fresh) {
-      const a = Math.random() * Math.PI * 2, rr = 30 + Math.random() * 115;
-      n.x = Math.cos(a) * rr; n.y = Math.sin(a) * rr;
-    } else if (!keep.has(n.id)) {
-      const bn = G.nodeById.get('b:' + bookKey(e.book));
+    {
+      const bk = bookKey(e.book);
+      const cnt = fan.get(bk) || 0; fan.set(bk, cnt + 1);
+      const bn = G.nodeById.get('b:' + bk);
       const cx = bn ? bn.x : 0, cy = bn ? bn.y : 0;
-      n.x = cx + (Math.random() - 0.5) * 130;
-      n.y = cy + (Math.random() - 0.5) * 130;
+      const a = cnt * 2.399963, rr = 62 + (cnt % 3) * 15; // 黄金角扇叶:均匀不重叠
+      n.x = cx + Math.cos(a) * rr; n.y = cy + Math.sin(a) * rr;
     }
     G.edges.push({ s: n, t: G.nodeById.get('b:' + bookKey(e.book)), hub: 'book' });
     for (const t of e.tags) {
@@ -1126,6 +1127,17 @@ function rebuild(fit, fresh, seed) {
       tbooks.get(t).add(bookKey(x.ref.book));
     }
     for (const [t, bs] of tbooks) t.cross = bs.size >= 2;
+  }
+  // 新进主题节点放到其摘录邻居的质心(确定性):跨书主题一步到位悬到书间,叶主题贴住挂点
+  for (const n of G.nodes) {
+    if (n.type !== 'topic' || keep.has(n.id)) continue;
+    let sx = 0, sy = 0, c = 0;
+    for (const e of G.edges) {
+      if (e.hub !== 'tag' || (e.s !== n && e.t !== n)) continue;
+      const x = e.s === n ? e.t : e.s;
+      sx += x.x; sy += x.y; c++;
+    }
+    if (c) { n.x = sx / c + 7; n.y = sy / c + 5; } // 定值偏移防与摘录重合触发随机抖动
   }
   for (const n of G.nodes) {
     if (n.type === 'excerpt') {
@@ -1235,16 +1247,17 @@ function step() {
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     const crossE = e.s.cross || e.t.cross;                    // 跨书共享主题的边:基础长度加长(+70)、软弹簧 → 主题悬到书间真空中央
     const leafT = e.hub === 'tag' && !crossE && (n1.deg === 1 || n2.deg === 1); // 孤主题(只挂一条摘抄):收紧防拖尾
-    const L = n1.r + n2.r + (e.hub === 'book' ? 52 : crossE ? 170 : leafT ? 24 : 30);
+    const L = n1.r + n2.r + (e.hub === 'book' ? 52 : crossE ? 190 : leafT ? 24 : 30);
     const f = (d - L) * (e.hub === 'book' ? 0.05 : crossE ? 0.03 : leafT ? 0.08 : 0.04) * a; // 书籍/书内边硬(聚合度),跨书边软(伸向中央)
     const fx = dx / d * f, fy = dy / d * f;
     n1.vx += fx; n1.vy += fy; n2.vx -= fx; n2.vy -= fy;
   }
   // 向心 + 积分
+  const cp = G.bookView ? 0.0018 : 0.0012; // 总览/合集视图向心减弱:书间真空带再放开;星图面保持原强度
   let maxV = 0;
   for (const n of G.nodes) {
     if (n.fixed) { n.x = n.fx; n.y = n.fy; n.vx = 0; n.vy = 0; continue; }
-    n.vx -= n.x * 0.0018 * a; n.vy -= n.y * 0.0018 * a;
+    n.vx -= n.x * cp * a; n.vy -= n.y * cp * a;
     n.vx *= 0.85; n.vy *= 0.85;
     n.x += clamp(n.vx, -14, 14); n.y += clamp(n.vy, -14, 14);
     const v = Math.abs(n.vx) + Math.abs(n.vy);
