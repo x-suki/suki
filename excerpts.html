@@ -1215,11 +1215,11 @@ function step() {
       let dx = n2.x - n1.x, dy = n2.y - n1.y;
       let d2 = dx * dx + dy * dy;
       const bookPair = n1.type === 'book' && n2.type === 'book';
-      if (d2 > (bookPair ? 211600 : 67600)) continue; // 260² 之外不计算;书籍对放宽到 460²(真空带内仍互推,防链条折叠)
+      if (d2 > (bookPair ? 518400 : 67600)) continue; // 260² 之外不计算;书籍对放宽到 720²(真空带内仍互推,防链条折叠)
       if (d2 < 0.01) { d2 = 1; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
       const d = Math.sqrt(d2);
       let f = (1200 * (n1.r + n2.r + 12)) / d2 * a;           // 牛顿斥力(弱化:1700→1200),动态更温和
-      if (bookPair) f *= 6;                                   // 书籍中枢额外互推:把书团(星云)之间的真空带拉开
+      if (bookPair) f *= 8;                                   // 书籍中枢额外互推:把书团(星云)之间的真空带拉开
       else if (n1.type === 'excerpt' && n2.type === 'excerpt' && n1.ref.book === n2.ref.book) f *= 0.55; // 同书摘抄互斥减弱:星云收紧(碰撞推离仍在,不会重合)
       const minD = n1.r + n2.r + 14;
       if (d < minD) f += (minD - d) * 0.055;                  // 碰撞推离
@@ -1235,7 +1235,7 @@ function step() {
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     const crossE = e.s.cross || e.t.cross;                    // 跨书共享主题的边:基础长度加长(+70)、软弹簧 → 主题悬到书间真空中央
     const leafT = e.hub === 'tag' && !crossE && (n1.deg === 1 || n2.deg === 1); // 孤主题(只挂一条摘抄):收紧防拖尾
-    const L = n1.r + n2.r + (e.hub === 'book' ? 52 : crossE ? 112 : leafT ? 24 : 30);
+    const L = n1.r + n2.r + (e.hub === 'book' ? 52 : crossE ? 170 : leafT ? 24 : 30);
     const f = (d - L) * (e.hub === 'book' ? 0.05 : crossE ? 0.03 : leafT ? 0.08 : 0.04) * a; // 书籍/书内边硬(聚合度),跨书边软(伸向中央)
     const fx = dx / d * f, fy = dy / d * f;
     n1.vx += fx; n1.vy += fy; n2.vx -= fx; n2.vy -= fy;
