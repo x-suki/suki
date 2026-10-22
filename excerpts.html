@@ -1776,7 +1776,13 @@ function openDetail(n) {
           if (!name) { inp.focus(); return; }
           let c = findColl(name);
           if (c && collHasBook(c, n.ref.title)) { toast('本书已在「' + c.name + '」中'); return; }
-          if (!c) { c = { id: uid(), name, books: [] }; state.collections.push(c); }
+          if (!c) {
+            // 与作者合集重名:不另建手动合集;本书本就随作者字段归入其中
+            const dupAuto = authorCollections().find(a => a.name.toLowerCase() === name.toLowerCase());
+            if (dupAuto) { inp.value = ''; toast('「' + dupAuto.name + '」是已有合集,本书已在其列,未新建'); return; }
+            c = { id: uid(), name, books: [] };
+            state.collections.push(c);
+          }
           collAddBook(c, n.ref.title);
           save();
           toast('已加入「' + c.name + '」');
@@ -1787,14 +1793,6 @@ function openDetail(n) {
         row.append(inp, btn);
         body.appendChild(row);
       }
-    }
-    const sorted = [...n.ref.items].sort((a, b) => a.createdAt.localeCompare(b.createdAt)); // 按时间正序:最早在前
-    for (const e of sorted) {
-      const it = el('div', 'exlist-item');
-      it.appendChild(el('div', 'q', e.text));
-      it.appendChild(el('div', 'm', fmtDate(e.createdAt) + (e.tags.length ? ' · ' + e.tags.join(' / ') : '')));
-      it.onclick = () => { const en = G.nodeById.get('e:' + e.id); if (en) selectNode(en); };
-      body.appendChild(it);
     }
     const acts = el('div', 'panel-actions');
     const bLoc = el('button', 'btn', '在图中定位');
@@ -1810,7 +1808,16 @@ function openDetail(n) {
       }
     }
     acts.appendChild(bLoc);
+    acts.style.marginBottom = '14px'; // 按钮行在摘录清单上方,与清单留出间距
     body.appendChild(acts);
+    const sorted = [...n.ref.items].sort((a, b) => a.createdAt.localeCompare(b.createdAt)); // 按时间正序:最早在前
+    for (const e of sorted) {
+      const it = el('div', 'exlist-item');
+      it.appendChild(el('div', 'q', e.text));
+      it.appendChild(el('div', 'm', fmtDate(e.createdAt) + (e.tags.length ? ' · ' + e.tags.join(' / ') : '')));
+      it.onclick = () => { const en = G.nodeById.get('e:' + e.id); if (en) selectNode(en); };
+      body.appendChild(it);
+    }
   }
   $('detailPanel').classList.add('open');
 }
@@ -2204,7 +2211,8 @@ function renderCollRows() {
 function createCollection() {
   const name = $('collNewName').value.trim();
   if (!name) { $('collNewName').focus(); return; }
-  if (findColl(name)) { toast('已有同名合集'); return; }
+  // 手动合集与作者合集共用一个命名空间:任一重名都不另建
+  if (findColl(name) || authorCollections().some(a => a.name.toLowerCase() === name.toLowerCase())) { toast('已有同名合集,未另建'); return; }
   state.collections.push({ id: uid(), name, books: [] });
   $('collNewName').value = '';
   save(); refreshDatalists(); renderList();
