@@ -1085,12 +1085,13 @@ function rebuild(fit, fresh, seed) {
     tagBooks.get(k).add(bookKey(e.book));
   }
   const isCrossTag = (t) => (tagBooks.get(t.toLowerCase()) || new Set()).size >= 2;
+  const crossCnt = (e) => e.tags.filter(isCrossTag).length; // 该摘录所连公共橙数量
   const bookStat = new Map(); // bookKey → {pub, free}
   for (const e of src) {
     const bk = bookKey(e.book);
     const st = bookStat.get(bk) || { pub: 0, free: 0 };
-    // 公用摘录 = 全部 tag 均跨书;混有本地 tag 的相对自由(本地主题链把它牢牢锚在书侧)
-    if (e.tags.length && e.tags.every(isCrossTag)) st.pub++; else st.free++;
+    // 公用摘录 = 所连公共橙 ≥2:只看公共橙数量,与总 tag 数无关(只挂 1 个公共橙的仍是自由叶,不该被收进走廊)
+    if (crossCnt(e) >= 2) st.pub++; else st.free++;
     bookStat.set(bk, st);
   }
   // 书籍与主题节点:书籍均匀圆周起步(确定性,避免随机扎堆掉进坏布局);星图面(fresh 单书)书籍居中、主题外环
@@ -1145,7 +1146,7 @@ function rebuild(fit, fresh, seed) {
       const bk = bookKey(e.book);
       const bn = G.nodeById.get('b:' + bk);
       const st = bookStat.get(bk) || { pub: 0, free: 1 };
-      const cross = e.tags.length > 0 && e.tags.every(isCrossTag); // 公用摘录:全部 tag 均跨书
+      const cross = crossCnt(e) >= 2; // 公用摘录:所连公共橙 ≥2,只看公共橙数量(与总 tag 数无关)
       const ol = bn ? Math.hypot(bn.x, bn.y) : 0;
       if (ol < 1) { // 星图面:书籍在原点,黄金角扇形
         const cnt = fan.get(bk) || 0; fan.set(bk, cnt + 1);
