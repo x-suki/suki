@@ -927,7 +927,8 @@ const U = {
   nodes: [], nodeById: new Map(), edges: [],
   focus: null,            // 焦点分层(computeFocus 在上层活动时写这里;相机与主视图共用 G.view,蓝节点世界坐标同一份)
   hoverEdge: null,        // 悬停中的蓝橙连线(加亮)
-  reveal: null,           // {bn, tn, items} 单击连线后临时展示的绿节点组(bn/tn 为 U 节点)
+  hoverGreen: null,       // 悬停中的展示绿节点(加亮其连线)
+  reveal: null,           // {kind:'edge'|'tag', bn, tn, items, hot:Set} 展示中的绿节点组:连线/橙节点单击触发
 };
 
 /* ---------- 标签页(多开星图页) ---------- */
@@ -1241,7 +1242,7 @@ function buildUpper(fresh) {
 function enterUpper() {
   if (upperOn || splitMode || !state.excerpts.length) return;
   upperOn = true;
-  U.hoverEdge = null; U.reveal = null;
+  U.hoverEdge = null; U.hoverGreen = null; U.reveal = null;
   G.hoverId = null;
   buildUpper(true);
   computeFocus();
@@ -1251,12 +1252,12 @@ function enterUpper() {
   $('btnUpper').title = '下层:返回书籍—摘录主视图';
   // 不动相机(与主视图共用 G.view):蓝节点世界坐标同一份 + 相机同一份,切层瞬间屏幕位置纹丝不动=视觉上只有一个蓝节点
   ensureLoop();
-  toast('上层:单击蓝橙连线查看相关摘录,Esc 或点「下层」返回');
+  toast('上层:单击蓝橙连线或橙节点查看相关摘录,Esc 或点「下层」返回');
 }
 function exitUpper(silent) {
   if (!upperOn) return;
   upperOn = false;
-  U.reveal = null; U.hoverEdge = null;
+  U.reveal = null; U.hoverEdge = null; U.hoverGreen = null;
   G.hoverId = null; G.selectedId = null;
   G.dragNode = null; G.panning = null; G.downInfo = null;
   hideTooltip();
@@ -1279,15 +1280,30 @@ function syncBookPos(n, pin) { // 上层蓝节点 → 主视图同名节点:位�
 function updateUpperHint() {
   const hint = document.querySelector('#legend .hint');
   if (hint) hint.textContent = upperOn
-    ? '上层:单击蓝橙连线,临时展示实现该关系的摘录(绿);单击空白处收起。可拖动节点、滚轮缩放;Esc 返回下层。'
+    ? '上层:单击蓝橙连线或橙节点,展示经过它的摘录(绿)与蓝绿橙连线;单击绿节点查看详情;单击空白处收起。可拖动节点、滚轮缩放;Esc 返回下层。'
     : '拖动节点可固定位置,双击节点解除固定(右下按钮可一键释放全部);双击空白处适配视图。节点大小:书籍随摘录数、星图面内摘录随字数增大';
 }
-function showReveal(e) { // 单击蓝橙连线:临时展示实现该关系的绿节点(该书带此主题的摘录)
+function hotEdgesOf(bn, tn) { // 展示中加亮的蓝橙连线:edge 展示=该条;tag 展示=过 tn 的全部
+  const s = new Set();
+  for (const e of U.edges) {
+    if (bn) { if ((e.s === bn || e.t === bn) && (e.s === tn || e.t === tn)) s.add(e); }
+    else if (e.s === tn || e.t === tn) s.add(e);
+  }
+  return s;
+}
+function showReveal(e) { // 单击蓝橙连线:临时展示实现该关系的摘录(绿)及蓝绿橙连线
   const bn = e.s.type === 'book' ? e.s : e.t;
   const tn = e.s.type === 'tag' ? e.s : e.t;
   const tk = tn.ref.name.toLowerCase();
   const items = viewSource().filter(x => bookKey(x.book) === bookKey(bn.ref.title) && x.tags.some(t => t.toLowerCase() === tk));
-  U.reveal = { bn, tn, items };
+  U.reveal = { kind: 'edge', bn, tn, items, hot: hotEdgesOf(bn, tn) };
+  computeFocus();
+  render();
+}
+function showTagReveal(tn) { // 单击橙节点:展示经过它的全部摘录(绿)与蓝绿橙连线
+  const tk = tn.ref.name.toLowerCase();
+  const items = viewSource().filter(x => x.tags.some(t => t.toLowerCase() === tk));
+  U.reveal = { kind: 'tag', bn: null, tn, items, hot: hotEdgesOf(null, tn) };
   computeFocus();
   render();
 }
@@ -1394,7 +1410,7 @@ function step() {
 function settled(maxV) { return G.alpha <= 0.021 && maxV < 0.35 && !G.dragNode; }
 
 function frame() {
-  if (upperOn) { render(); requestAnimationFrame(frame); return; } // 上层:无物理,持续重绘只为蓝橙连线的行进虚线
+  if (upperOn) { render(); G.running = false; return; } // 上层:无物理无动画(连线为普通线条),交互各自触发重绘
   const maxV = step();
   let maxV2 = 0;
   if (splitMode && tabs.length > 1) for (const t of tabs) if (t.id !== activeTabId && t.snap.nodes.length) maxV2 = Math.max(maxV2, stepSnap(t.snap));
@@ -1539,10 +1555,18 @@ function drawView(nodes, nodeById, edges, view, focus, selId, hovId, ctx2, w, h,
   ctx2.restore();
 }
 
-/* ---------- 上层空间渲染:蓝橙二部图 + 连线上的临时绿节点通路 ---------- */
-function revealLayout() { // 展示中的绿节点位置:沿蓝橙连线分布,垂直向交错错开(每次现算,随拖动跟随)
+/* ---------- 上层空间渲染:蓝橙二部图 + 蓝绿橙连线通路 ---------- */
+function revealLayout() { // 展示中的绿节点位置(每次现算,随拖动跟随):edge=沿蓝橙连线交错;tag=绕橙节点均匀环
   const r = U.reveal;
   if (!r) return [];
+  if (r.kind === 'tag') {
+    const n = r.items.length;
+    const rr = Math.max(48, r.tn.r + 36, 26 + Math.sqrt(n) * 15);
+    return r.items.map((e, i) => {
+      const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
+      return { e, x: r.tn.x + Math.cos(a) * rr, y: r.tn.y + Math.sin(a) * rr };
+    });
+  }
   const dx = r.tn.x - r.bn.x, dy = r.tn.y - r.bn.y;
   const len = Math.hypot(dx, dy) || 1;
   const px = -dy / len, py = dx / len;
@@ -1551,6 +1575,16 @@ function revealLayout() { // 展示中的绿节点位置:沿蓝橙连线分布,�
     const off = (i % 2 ? 1 : -1) * (14 + Math.floor(i / 2) * 22);
     return { e, x: r.bn.x + dx * f + px * off, y: r.bn.y + dy * f + py * off };
   });
+}
+function greenEndpoints(g) { // 展示绿节点的连线端点:它的书(蓝)+ 它的每个主题(橙)= 完整蓝绿橙通路
+  const pts = [];
+  const bn = U.nodeById.get('b:' + bookKey(g.e.book));
+  if (bn) pts.push(bn);
+  for (const t of g.e.tags) {
+    const tn = U.nodeById.get('t:' + t.toLowerCase());
+    if (tn) pts.push(tn);
+  }
+  return pts;
 }
 function drawUpper() {
   const { k, ox, oy } = G.view; // 与压暗底图同一相机:上层严格对位主视图
@@ -1569,31 +1603,28 @@ function drawUpper() {
   /* 蓝橙连线:行进虚线(视觉强化,暗示可点击);悬停/展示中加亮 */
   ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * ox, dpr * oy);
   ctx.lineCap = 'round';
-  const dashPhase = -(performance.now() / 40) % 28;
   for (const e of U.edges) {
-    const hot = e === U.hoverEdge || (!!rv && (rv.bn === e.s || rv.tn === e.s) && (rv.bn === e.t || rv.tn === e.t));
+    const hot = e === U.hoverEdge || (!!rv && rv.hot && rv.hot.has(e));
     const ts = tier(e.s.id), tt = tier(e.t.id);
     const a = rv ? (hot ? 0.95 : 0.12) : (Math.min(ts, tt) < 1 ? 0.5 * Math.min(ts, tt) : 0.55);
     ctx.globalAlpha = a;
     ctx.strokeStyle = C.tag;
     ctx.lineWidth = (hot ? 2.4 : 1.5) / k;
-    ctx.setLineDash([9 / k, 9 / k]);
-    ctx.lineDashOffset = dashPhase / k;
     ctx.beginPath(); ctx.moveTo(e.s.x, e.s.y); ctx.lineTo(e.t.x, e.t.y); ctx.stroke();
   }
-  ctx.setLineDash([]);
 
-  /* 临时展示:实现该关系的 绿节点 与 蓝—绿—橙 通路 */
+  /* 临时展示:摘录(绿)与它的全部 蓝—绿—橙 连线(书 + 每个主题);悬停的绿加亮 */
   if (rv) {
     const greens = revealLayout();
-    ctx.globalAlpha = 0.65;
-    ctx.strokeStyle = C.excerpt;
-    ctx.lineWidth = 1.3 / k;
-    ctx.beginPath();
     for (const g of greens) {
-      ctx.moveTo(rv.bn.x, rv.bn.y); ctx.lineTo(g.x, g.y); ctx.lineTo(rv.tn.x, rv.tn.y);
+      const hotG = g === U.hoverGreen;
+      ctx.globalAlpha = hotG ? 0.9 : 0.65;
+      ctx.strokeStyle = C.excerpt;
+      ctx.lineWidth = (hotG ? 2 : 1.3) / k;
+      ctx.beginPath();
+      for (const p of greenEndpoints(g)) { ctx.moveTo(p.x, p.y); ctx.lineTo(g.x, g.y); }
+      ctx.stroke();
     }
-    ctx.stroke();
     ctx.globalAlpha = 1;
     for (const g of greens) {
       ctx.beginPath(); ctx.arc(g.x, g.y, 5.5, 0, 6.2832);
@@ -1781,9 +1812,9 @@ function sliceView(nodes, w) {
 }
 let viewAnim = null;
 function animateView(target, animated = true) {
+  cancelAnimationFrame(viewAnim); // 同步落位也要掐掉进行中的动画尾巴,否则旧 tick 会覆盖回中途值
   if (!animated) { G.view = { ...target }; render(); ensureLoop(); return; }
   const from = { ...G.view }, t0 = performance.now(), dur = 260;
-  cancelAnimationFrame(viewAnim);
   const tick = (t) => {
     const p = clamp((t - t0) / dur, 0, 1), e = 1 - Math.pow(1 - p, 3);
     G.view = {
@@ -1823,7 +1854,7 @@ function fitUpper(animated = true) {
   const pad = 110, inset = chromeTopInset();
   const vc = viewCenter();
   const k = clamp(Math.min((vc.right - vc.left) / (x1 - x0 + pad * 2), (H - inset - 60) / (y1 - y0 + pad * 2)), 0.2, 1.5);
-  animateView({ k, ox: vc.cx - (x0 + x1) / 2 * k, oy: (inset + H) / 2 - (y0 + y1) / 2 * k });
+  animateView({ k, ox: vc.cx - (x0 + x1) / 2 * k, oy: (inset + H) / 2 - (y0 + y1) / 2 * k }, animated);
 }
 
 /* ---------- 指针交互 ---------- */
@@ -1968,17 +1999,16 @@ canvas.addEventListener('pointermove', (ev) => {
       return;
     }
     // 悬停:节点优先,其次蓝橙连线(可点击暗示),再次展示中的绿节点
-    const prevH = G.hoverId, prevE = U.hoverEdge;
+    const prevH = G.hoverId, prevE = U.hoverEdge, prevG = U.hoverGreen;
     const n = nodeAtU(mx, my);
     G.hoverId = n ? n.id : null;
     U.hoverEdge = n ? null : upperEdgeAt(mx, my);
-    canvas.classList.toggle('pointing', !!(n || U.hoverEdge));
+    U.hoverGreen = (!n && !U.hoverEdge) ? revealGreenAt(mx, my) : null;
+    canvas.classList.toggle('pointing', !!(n || U.hoverEdge || U.hoverGreen));
     if (n) showTooltip(n, ev.clientX, ev.clientY);
-    else {
-      const g = revealGreenAt(mx, my);
-      if (g) showTooltip(g, ev.clientX, ev.clientY); else hideTooltip();
-    }
-    if (G.hoverId !== prevH || U.hoverEdge !== prevE) { computeFocus(); render(); }
+    else if (U.hoverGreen) showTooltip(U.hoverGreen, ev.clientX, ev.clientY);
+    else hideTooltip();
+    if (G.hoverId !== prevH || U.hoverEdge !== prevE || U.hoverGreen !== prevG) { computeFocus(); render(); }
     return;
   }
   if (G.dragNode) {
@@ -2021,6 +2051,7 @@ canvas.addEventListener('pointerup', (ev) => {
       const n0 = G.dragNode;
       if (G.downInfo && !G.downInfo.moved) {
         selectNode(n0);          // 单击节点:详情
+        if (n0.type === 'tag') showTagReveal(n0); // 单击橙节点:展示经过它的摘录与蓝绿橙连线
       } else {
         unstack(n0, U.nodes);    // 拖放落位:滑出重叠(上层无物理,重叠只能这里解)
         syncBookPos(n0, true);   // 蓝节点落位写回主视图并固定(与主视图拖动=固定同语义)
@@ -2032,7 +2063,7 @@ canvas.addEventListener('pointerup', (ev) => {
       if (g) {
         openDetail(g);           // 展示中的绿节点:查看摘录详情
       } else if (U.reveal) {
-        U.reveal = null;         // 单击空白:结束展示
+        U.reveal = null; U.hoverGreen = null; // 单击空白:结束展示
         computeFocus(); render();
       } else {
         const e = upperEdgeAt(mx, my);
@@ -2801,7 +2832,7 @@ document.addEventListener('keydown', (e) => {
     else if ($('collOverlay').classList.contains('open')) closeCollManager();
     else if (moreMenu.classList.contains('open')) toggleMenu(false);
     else if (upperOn) { // 上层:有展示先收展示,再退层(弹窗类优先关闭)
-      if (U.reveal) { U.reveal = null; computeFocus(); render(); }
+      if (U.reveal) { U.reveal = null; U.hoverGreen = null; computeFocus(); render(); }
       else exitUpper();
     }
     else if ($('detailPanel').classList.contains('open')) { G.selectedId = null; closeDetail(); computeFocus(); render(); }
