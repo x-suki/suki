@@ -925,8 +925,7 @@ const G = {
 let upperOn = false;
 const U = {
   nodes: [], nodeById: new Map(), edges: [],
-  view: { k: 1, ox: 0, oy: 0 },
-  focus: null,            // 焦点分层(computeFocus 在上层活动时写这里)
+  focus: null,            // 焦点分层(computeFocus 在上层活动时写这里;相机与主视图共用 G.view,蓝节点世界坐标同一份)
   hoverEdge: null,        // 悬停中的蓝橙连线(加亮)
   reveal: null,           // {bn, tn, items} 单击连线后临时展示的绿节点组(bn/tn 为 U 节点)
 };
@@ -1250,7 +1249,7 @@ function enterUpper() {
   $('btnUpper').classList.add('on');
   $('btnUpperLabel').textContent = '下层'; // 按钮随层翻转:在上层时显示「下层」,再点=回主视图
   $('btnUpper').title = '下层:返回书籍—摘录主视图';
-  fitUpper();
+  // 不动相机(与主视图共用 G.view):蓝节点世界坐标同一份 + 相机同一份,切层瞬间屏幕位置纹丝不动=视觉上只有一个蓝节点
   ensureLoop();
   toast('上层:单击蓝橙连线查看相关摘录,Esc 或点「下层」返回');
 }
@@ -1554,7 +1553,7 @@ function revealLayout() { // 展示中的绿节点位置:沿蓝橙连线分布,�
   });
 }
 function drawUpper() {
-  const { k, ox, oy } = U.view;
+  const { k, ox, oy } = G.view; // 与压暗底图同一相机:上层严格对位主视图
   const focus = U.focus; // computeFocus 在上层活动时写入 U.focus
   const rv = U.reveal;
   const tier = (id) => {
@@ -1798,13 +1797,12 @@ function animateView(target, animated = true) {
   viewAnim = requestAnimationFrame(tick);
 }
 function centerOn(node) {
-  if (upperOn && U.nodeById.has(node.id)) { centerOnU(node); return; } // 上层节点:在上层视图里居中
   const { cx } = viewCenter();
   const k = Math.max(G.view.k, 0.9);
   animateView({ k, ox: cx - node.x * k, oy: (chromeTopInset() + H) / 2 - node.y * k });
 }
 function zoomAt(factor, mx, my) {
-  const v = upperOn ? U.view : G.view;
+  const v = G.view; // 上下层共用一个相机
   const k2 = clamp(v.k * factor, 0.18, 3.4);
   const r = k2 / v.k;
   v.ox = mx - (mx - v.ox) * r;
@@ -1814,8 +1812,9 @@ function zoomAt(factor, mx, my) {
 }
 
 /* ---------- 上层空间视图控制 ---------- */
+/* 相机与主视图共用(只有 G.view 一份):切层零跳动;fitUpper 仅在用户显式「适配」(双击空白/缩放钮)时动相机 */
 function fitUpper(animated = true) {
-  if (!U.nodes.length) { U.view = { k: 1, ox: W / 2, oy: H / 2 }; render(); return; }
+  if (!U.nodes.length) return;
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   for (const n of U.nodes) {
     x0 = Math.min(x0, n.x - n.r); y0 = Math.min(y0, n.y - n.r);
@@ -1824,29 +1823,7 @@ function fitUpper(animated = true) {
   const pad = 110, inset = chromeTopInset();
   const vc = viewCenter();
   const k = clamp(Math.min((vc.right - vc.left) / (x1 - x0 + pad * 2), (H - inset - 60) / (y1 - y0 + pad * 2)), 0.2, 1.5);
-  animateViewU({ k, ox: vc.cx - (x0 + x1) / 2 * k, oy: (inset + H) / 2 - (y0 + y1) / 2 * k }, animated);
-}
-let viewAnimU = null;
-function animateViewU(target, animated = true) {
-  cancelAnimationFrame(viewAnimU); // 同步落位也要掐掉进行中的动画尾巴,否则旧 tick 会覆盖回中途值
-  if (!animated) { U.view = { ...target }; render(); return; }
-  const from = { ...U.view }, t0 = performance.now(), dur = 260;
-  const tick = (t) => {
-    const p = clamp((t - t0) / dur, 0, 1), e = 1 - Math.pow(1 - p, 3);
-    U.view = {
-      k: from.k + (target.k - from.k) * e,
-      ox: from.ox + (target.ox - from.ox) * e,
-      oy: from.oy + (target.oy - from.oy) * e,
-    };
-    render();
-    if (p < 1) viewAnimU = requestAnimationFrame(tick);
-  };
-  viewAnimU = requestAnimationFrame(tick);
-}
-function centerOnU(node) {
-  const { cx } = viewCenter();
-  const k = Math.max(U.view.k, 0.9);
-  animateViewU({ k, ox: cx - node.x * k, oy: (chromeTopInset() + H) / 2 - node.y * k });
+  animateView({ k, ox: vc.cx - (x0 + x1) / 2 * k, oy: (inset + H) / 2 - (y0 + y1) / 2 * k });
 }
 
 /* ---------- 指针交互 ---------- */
@@ -1872,7 +1849,7 @@ function unstack(n0, nodes) {
 }
 function toLocal(ev) { return { mx: ev.clientX, my: ev.clientY }; }
 function toWorld(mx, my) { return { x: (mx - G.view.ox) / G.view.k, y: (my - G.view.oy) / G.view.k }; }
-function toWorldU(mx, my) { return { x: (mx - U.view.ox) / U.view.k, y: (my - U.view.oy) / U.view.k }; }
+function toWorldU(mx, my) { return toWorld(mx, my); } // 上层与主视图共用相机与坐标系
 function hitNode(nodes, view, mx, my) {
   let best = null, bd = 1e9;
   for (const n of nodes) {
@@ -1884,7 +1861,7 @@ function hitNode(nodes, view, mx, my) {
   return best;
 }
 function nodeAt(mx, my) { return hitNode(G.nodes, G.view, mx, my); }
-function nodeAtU(mx, my) { return hitNode(U.nodes, U.view, mx, my); }
+function nodeAtU(mx, my) { return hitNode(U.nodes, G.view, mx, my); }
 function distToSeg(px, py, x1, y1, x2, y2) {
   const dx = x2 - x1, dy = y2 - y1;
   const l2 = dx * dx + dy * dy;
@@ -1892,7 +1869,7 @@ function distToSeg(px, py, x1, y1, x2, y2) {
   return Math.hypot(px - (x1 + dx * t), py - (y1 + dy * t));
 }
 function upperEdgeAt(mx, my) { // 屏幕坐标最近蓝橙连线(节点未命中时才轮到它)
-  const { k, ox, oy } = U.view;
+  const { k, ox, oy } = G.view;
   let best = null, bd = 8;
   for (const e of U.edges) {
     const d = distToSeg(mx, my, e.s.x * k + ox, e.s.y * k + oy, e.t.x * k + ox, e.t.y * k + oy);
@@ -1902,7 +1879,7 @@ function upperEdgeAt(mx, my) { // 屏幕坐标最近蓝橙连线(节点未命中
 }
 function revealGreenAt(mx, my) { // 展示中的绿节点(临时合成节点,只用于悬停气泡/详情)
   if (!U.reveal) return null;
-  const { k, ox, oy } = U.view;
+  const { k, ox, oy } = G.view;
   for (const g of revealLayout()) {
     const d = Math.hypot(mx - (g.x * k + ox), my - (g.y * k + oy));
     if (d < Math.max(18, 5.5 * k + 6)) {
@@ -1944,7 +1921,7 @@ canvas.addEventListener('pointerdown', (ev) => {
     G.downInfo = { x: ev.clientX, y: ev.clientY, moved: false, hit: !!n };
     if (n) G.dragNode = n;
     else {
-      G.panning = { ox: U.view.ox, oy: U.view.oy, x: ev.clientX, y: ev.clientY };
+      G.panning = { ox: G.view.ox, oy: G.view.oy, x: ev.clientX, y: ev.clientY };
       canvas.classList.add('grabbing');
     }
     return;
@@ -1966,7 +1943,7 @@ canvas.addEventListener('pointermove', (ev) => {
     if (touches.size < 2) return;
     const s = pinchNow();
     if (G.pinch.dist > 8) zoomAt(s.dist / G.pinch.dist, s.mx, s.my); // 两指快叠拢时只平移不缩放(防抖)
-    const v = upperOn ? U.view : G.view; // 上层活动时捏合平移作用于上层视图
+    const v = G.view; // 捏合平移作用于共用相机
     v.ox += s.mx - G.pinch.mx;
     v.oy += s.my - G.pinch.my;
     render();
@@ -1985,8 +1962,8 @@ canvas.addEventListener('pointermove', (ev) => {
     }
     if (G.panning) {
       if (G.downInfo && Math.hypot(ev.clientX - G.downInfo.x, ev.clientY - G.downInfo.y) > 3) G.downInfo.moved = true;
-      U.view.ox = G.panning.ox + (ev.clientX - G.panning.x);
-      U.view.oy = G.panning.oy + (ev.clientY - G.panning.y);
+      G.view.ox = G.panning.ox + (ev.clientX - G.panning.x);
+      G.view.oy = G.panning.oy + (ev.clientY - G.panning.y);
       render();
       return;
     }
@@ -2186,7 +2163,7 @@ function openDetail(n) {
         c.onclick = () => { // 主题节点只在上层:跳过去并选中居中
           if (!upperOn) enterUpper();
           const tn = U.nodeById.get('t:' + t.toLowerCase());
-          if (tn) { selectNode(tn); centerOnU(tn); }
+          if (tn) { selectNode(tn); centerOn(tn); } // 相机共用,通用居中即可
         };
         chips.appendChild(c);
       }
