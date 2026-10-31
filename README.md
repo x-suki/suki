@@ -67,7 +67,7 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库 / Luna Library 摘抄
 
 顶部搜索框可跨三板块搜全部内容（标题/UP主/简介/笔记/游戏详情等）；各板块内的搜索框只搜本板块。
 快捷键：`/` 聚焦当前板块搜索框 · `Esc` 关弹窗/清空 · `1~5` 切换 总览/视频/番剧/游戏/摘抄 · 视频页内 `R` 随机看（从当前列表抽一个未失效视频新标签打开，并定位高亮）。
-视频卡片上的**笔记条可点击**，弹窗查看全文（含图片）；番剧/游戏卡片点击进详情弹窗，游戏笔记里的截图直接内嵌显示。
+视频卡片上的**笔记条可点击**，弹窗查看全文（含图片）；番剧/游戏卡片点击进详情弹窗，番剧帖子/游戏笔记里的截图与视频直接内嵌显示。
 
 ## 文件说明
 
@@ -81,6 +81,7 @@ B站收藏 / Anime Note 番剧书架 / Game Note 游戏库 / Luna Library 摘抄
 | `version.json` | 生成物：`{generated_at}` 轻量版本标记，页面「检查更新」先拉它对比再决定是否下载 data.js |
 | `covers/anime/` `covers/game/` | 生成物：封面副本（游戏封面命名 = URL 的 md5，与 Game Note `/img` 端点同规则） |
 | `gmedia/` | 生成物：游戏笔记里内嵌的截图（源文件在 Game Note `data/media/`） |
+| `amedia/` | 生成物：番剧笔记帖子里的媒体（源文件在 Anime Note `data/media/`） |
 | `WORKLOG.md` | 工作日志 |
 
 三个源项目（`../Bili Project`、`../Anime Note`、`../Game Note/steam-play-data`）**只读不写**；

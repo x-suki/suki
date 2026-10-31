@@ -134,6 +134,7 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
 .ndate{margin-left:auto;font-size:11.5px;color:var(--muted);flex:none}
 .nitem .nb{font-size:13px;color:var(--ink2);white-space:pre-wrap;word-break:break-all}
 .nitem .nb img{max-width:100%;border-radius:8px;display:block;margin:6px 0}
+.nitem .nb video{max-width:100%;border-radius:8px;display:block;margin:6px 0}
 .mlinks{margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
 
 #q-global{background:var(--surface);border:1px solid var(--border);
@@ -267,7 +268,7 @@ function animeCard(w, idx){
     <div class="ci"><div class="t" title="${esc(w.title)}">${esc(w.title)}</div>
       ${w.title_cn ? `<div class="m">${esc(w.title_cn)}</div>` : ""}
       <div class="m">${w.rating ? `★ ${w.rating}` : ""}${w.my_rating ? " · " + stars(w.my_rating) : ""}</div>
-      ${w.notes ? `<div class="note">${ICON_NOTE} ${esc(w.notes)}</div>` : ""}</div></div>`;
+      ${w.notes.length ? `<div class="note">${ICON_NOTE} ${esc(w.notes[0].title || w.notes[0].body)}${w.notes.length > 1 ? ` 等 ${w.notes.length} 篇` : ""}</div>` : ""}</div></div>`;
 }
 function gameCard(g, idx){
   return `<div class="card g" data-game="${idx}">
@@ -287,7 +288,7 @@ function renderOverview(){
   const biliItems = biliUnique();   /* 主页统计与"最近收藏"去重：跨夹重复视频只出现一次 */
   const biliNotes = biliItems.filter(i=>i.note).length;
   const gameNotes = games.concat(backlog).reduce((n,g)=>n+g.notes.length,0);
-  const animeNotes = works.filter(w=>w.notes).length;
+  const animeNotes = works.reduce((n,w)=>n+w.notes.length,0);
   const recent = (arr, k, n) => arr.slice().sort((a,b)=>(b[k]||0)-(a[k]||0)).slice(0,n);
   const recentGames = recent(games, "first_seen", 6);
   ANIME_IDX = works.slice(0, 8); GAME_IDX = recentGames;  /* 总览卡片也要能弹详情 */
@@ -400,7 +401,7 @@ function renderAnime(){
   });
   if (s.status !== "all") ws = ws.filter(w=>w.status===s.status);
   const q = s.q.trim().toLowerCase();
-  if (q) ws = ws.filter(w => (w.title+" "+w.title_cn+" "+(w.notes||"")).toLowerCase().includes(q));
+  if (q) ws = ws.filter(w => (w.title+" "+w.title_cn+" "+w.notes.map(n=>n.title+" "+n.body).join(" ")).toLowerCase().includes(q));
   $("#v-anime").innerHTML = `
     <div class="bar">
       <div class="chips">
@@ -453,7 +454,7 @@ function refreshList(view){
       return d || (b.added_at||"").localeCompare(a.added_at||""); });
     if (state.anime.status!=="all") ws = ws.filter(w=>w.status===state.anime.status);
     const q = state.anime.q.trim().toLowerCase();
-    if (q) ws = ws.filter(w => (w.title+" "+w.title_cn+" "+(w.notes||"")).toLowerCase().includes(q));
+    if (q) ws = ws.filter(w => (w.title+" "+w.title_cn+" "+w.notes.map(n=>n.title+" "+n.body).join(" ")).toLowerCase().includes(q));
     ANIME_IDX = ws;
     sec.querySelector(".count").textContent = ws.length + " 部";
     sec.querySelector(".grid").innerHTML = ws.map((w,i)=>animeCard(w,i)).join("") || `<div class="empty">没有匹配的内容</div>`;
@@ -487,7 +488,12 @@ function animeModal(w){
       ${w.tags.length ? `<div class="k">标签</div><div>${w.tags.map(t=>esc(t)).join(" / ")}</div>` : ""}
     </div>
     ${w.summary ? `<div class="summary">${esc(w.summary)}</div>` : ""}
-    ${w.notes ? `<div class="nblock"><h4>笔记</h4><div class="nitem"><div class="nb">${rich(w.notes)}</div></div></div>` : ""}
+    ${w.notes.length ? `<div class="nblock"><h4>笔记 ${w.notes.length} 篇</h4>${w.notes.map(n=>`
+      <div class="nitem">
+        <div class="nhead">${n.title ? `<span class="nt">${esc(n.title)}</span>` : ""}${n.updated_at ? `<span class="ndate">${fmtDs(n.updated_at)}</span>` : ""}</div>
+        ${(n.body || n.media.length) ? `<div class="nb">${n.body ? rich(n.body) : ""}${n.media.map(m=>m.type==="video"
+          ? `<video src="${esc(m.src)}" controls preload="metadata"></video>`
+          : `<img src="${esc(m.src)}" loading="lazy" alt="">`).join("")}</div>` : ""}</div>`).join("")}</div>` : ""}
     ${w.url ? `<div class="mlinks"><a href="${esc(w.url)}" target="_blank" rel="noopener">在来源站点查看 ↗</a></div>` : ""}`);
 }
 function gameModal(g){
@@ -700,7 +706,7 @@ function renderSearch(){
   }
   if (ANIME) for (const w of ANIME.works){
     const hay = (w.title + " " + w.title_cn + " " + (w.studio || "") + " " + (w.tags || []).join(" ")
-      + " " + (w.summary || "") + " " + (w.notes || "")).toLowerCase();
+      + " " + (w.summary || "") + " " + w.notes.map(n => n.title + " " + n.body).join(" ")).toLowerCase();
     if (hay.includes(q)) aWorks.push(w);
   }
   if (GAME) for (const g of GAME.library.concat(GAME.backlog)){
