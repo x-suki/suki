@@ -86,6 +86,10 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
   font-size:11px;line-height:19px;color:#fff;background:rgba(0,0,0,.6)}
 .b-dead{background:#4a5160;text-decoration:line-through}
 .b-new{left:auto;right:5px;top:5px;background:var(--accent)}
+/* 游戏卡片的笔记数角标（右上，避开左上的状态角标；底色同状态角标压暗保白字可读） */
+.b-notes{left:auto;right:5px;top:5px;background:color-mix(in srgb,var(--accent) 82%,#000);
+  padding:0 6px;font-size:10.5px;line-height:17px}
+.b-notes .ic{width:10px;height:10px;vertical-align:-1.5px}
 .st-wishlist{background:color-mix(in srgb,var(--st-wishlist) 82%,#000)}
 .st-watching{background:color-mix(in srgb,var(--st-watching) 82%,#000)}
 .st-done{background:color-mix(in srgb,var(--st-done) 82%,#000)}
@@ -200,7 +204,7 @@ const state = {
   gq: "",
   bili: {folder: 0, q: "", sort: "fav_time", noted: true, hideDead: true},
   anime: {status: "all", q: ""},
-  game: {shelf: "all", q: ""},
+  game: {shelf: "all", q: "", noted: false, month: null},
 };
 let _prevView = "overview";   /* 全局搜索清空后回到的视图 */
 const $ = s => document.querySelector(s);
@@ -275,10 +279,12 @@ function gameCard(g, idx){
     <div class="cov"><img src="${esc(g.cover||g.cover_url)}" loading="lazy" referrerpolicy="no-referrer"
         data-fb="${esc(g.cover_url)}" onerror="imgErr(this)" alt="">
       ${g.hours ? `<span class="dur">${fmtHours(g.hours)}h</span>` : ""}
-      ${g.in_library ? "" : `<span class="badge st-on_hold">待玩</span>`}</div>
+      ${g.in_library ? "" : `<span class="badge st-on_hold">待玩</span>`}
+      ${g.notes.length ? `<span class="badge b-notes" title="笔记 ${g.notes.length} 篇">${ICON_NOTE} ${g.notes.length}</span>` : ""}</div>
     <div class="ci"><div class="t" title="${esc(g.name)}">${esc(g.name)}</div>
       ${g.name_en && g.name_en !== g.name ? `<div class="m">${esc(g.name_en)}</div>` : ""}
-      <div class="m">${g.notes.length ? `${ICON_NOTE} ${g.notes.length} 篇笔记` : esc(g.genres||"")}</div></div></div>`;
+      <div class="m">${g.last_played ? `最后运行 ${esc(g.last_played)}`
+        : g.notes.length ? `${ICON_NOTE} ${g.notes.length} 篇笔记` : esc(g.genres||"")}</div></div></div>`;
 }
 
 /* ---------- 总览 ---------- */
@@ -418,25 +424,51 @@ function renderAnime(){
 }
 
 /* ---------- 游戏 ---------- */
+/* 当前列表：书架分区（全部/游戏库/待玩区）或月度（GAME.months，v1.36 起由导出器提供，
+   月度条目是 games 行的展示字段子集，含 notes/last_played，点卡片照常弹详情），
+   叠加「只看有笔记」与搜索过滤 */
+function gameList(){
+  const s = state.game;
+  let gs;
+  if (s.shelf === "month"){
+    const months = GAME.months || [];
+    const cur = months.find(m=>m.month===s.month) || months[0];
+    if (cur) s.month = cur.month;
+    gs = cur ? cur.games : [];
+  } else {
+    gs = s.shelf==="lib" ? GAME.library : s.shelf==="backlog" ? GAME.backlog : GAME.library.concat(GAME.backlog);
+  }
+  if (s.noted) gs = gs.filter(g=>g.notes.length);
+  const q = s.q.trim().toLowerCase();
+  if (q) gs = gs.filter(g => (g.name+" "+g.name_en+" "+g.notes.map(n=>n.title+" "+n.body).join(" ")).toLowerCase().includes(q));
+  return gs;
+}
 function renderGame(){
   if (!GAME) { $("#v-game").innerHTML = `<div class="empty">游戏数据未导出</div>`; return; }
   const s = state.game;
-  let gs = s.shelf==="lib" ? GAME.library : s.shelf==="backlog" ? GAME.backlog : GAME.library.concat(GAME.backlog);
-  const q = s.q.trim().toLowerCase();
-  if (q) gs = gs.filter(g => (g.name+" "+g.name_en+" "+g.notes.map(n=>n.title+" "+n.body).join(" ")).toLowerCase().includes(q));
+  const months = GAME.months || [];
+  const gs = gameList();
+  const monthChips = months.map(m=>{
+    const [y, mo] = m.month.split("-");
+    return `<button class="chip ${m.month===s.month?"on":""}" data-gm="${m.month}">${y} 年 ${+mo} 月 ${m.count}</button>`;
+  }).join("");
   $("#v-game").innerHTML = `
     <div class="bar">
       <div class="chips">
         <button class="chip ${s.shelf==="all"?"on":""}" data-sh="all">全部 ${GAME.library.length + GAME.backlog.length}</button>
         <button class="chip ${s.shelf==="lib"?"on":""}" data-sh="lib">游戏库 ${GAME.library.length}</button>
         <button class="chip ${s.shelf==="backlog"?"on":""}" data-sh="backlog">待玩区 ${GAME.backlog.length}</button>
+        ${months.length ? `<button class="chip ${s.shelf==="month"?"on":""}" data-sh="month">每月游戏 ${months.length}</button>` : ""}
       </div>
       <input type="search" id="q-game" placeholder="搜索游戏 / 笔记" value="${esc(s.q)}">
+      <label class="tgl"><input type="checkbox" id="n-game" ${s.noted?"checked":""}>只看有笔记</label>
       <span class="count">${gs.length} 款</span></div>
-    <div class="grid g">${gs.map(gameCard).join("") || `<div class="empty">没有匹配的内容</div>`}</div>`;
+    ${s.shelf==="month" && months.length ? `<div class="bar"><div class="chips">${monthChips}</div></div>` : ""}
+    <div class="grid g">${gs.map((g,i)=>gameCard(g,i)).join("") || `<div class="empty">没有匹配的内容</div>`}</div>`;
   GAME_IDX = gs;
   const qEl = $("#q-game");
   qEl.addEventListener("input", ()=>{ s.q = qEl.value; refreshList("game"); });
+  $("#n-game").addEventListener("change", e=>{ s.noted = e.target.checked; renderGame(); });
 }
 /* 卡片索引 → 弹窗数据（列表过滤后重新渲染时重建索引） */
 let ANIME_IDX = [], GAME_IDX = [];
@@ -459,9 +491,7 @@ function refreshList(view){
     sec.querySelector(".count").textContent = ws.length + " 部";
     sec.querySelector(".grid").innerHTML = ws.map((w,i)=>animeCard(w,i)).join("") || `<div class="empty">没有匹配的内容</div>`;
   } else {
-    let gs = state.game.shelf==="lib" ? GAME.library : state.game.shelf==="backlog" ? GAME.backlog : GAME.library.concat(GAME.backlog);
-    const q = state.game.q.trim().toLowerCase();
-    if (q) gs = gs.filter(g => (g.name+" "+g.name_en+" "+g.notes.map(n=>n.title+" "+n.body).join(" ")).toLowerCase().includes(q));
+    const gs = gameList();
     GAME_IDX = gs;
     sec.querySelector(".count").textContent = gs.length + " 款";
     sec.querySelector(".grid").innerHTML = gs.map((g,i)=>gameCard(g,i)).join("") || `<div class="empty">没有匹配的内容</div>`;
@@ -760,6 +790,8 @@ document.addEventListener("click", e => {
   if (st){ state.anime.status = st.dataset.st; return renderAnime(); }
   const sh = e.target.closest("[data-sh]");
   if (sh){ state.game.shelf = sh.dataset.sh; return renderGame(); }
+  const gmc = e.target.closest("[data-gm]");
+  if (gmc){ state.game.month = gmc.dataset.gm; return renderGame(); }
   const nk = e.target.closest("[data-nkey]");
   if (nk) return noteModal(nk.dataset.nkey);
   const link = e.target.closest("[data-link]");
