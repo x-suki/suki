@@ -86,10 +86,6 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
   font-size:11px;line-height:19px;color:#fff;background:rgba(0,0,0,.6)}
 .b-dead{background:#4a5160;text-decoration:line-through}
 .b-new{left:auto;right:5px;top:5px;background:var(--accent)}
-/* 游戏卡片的笔记数角标（右上，避开左上的状态角标；底色同状态角标压暗保白字可读） */
-.b-notes{left:auto;right:5px;top:5px;background:color-mix(in srgb,var(--accent) 82%,#000);
-  padding:0 6px;font-size:10.5px;line-height:17px}
-.b-notes .ic{width:10px;height:10px;vertical-align:-1.5px}
 .st-wishlist{background:color-mix(in srgb,var(--st-wishlist) 82%,#000)}
 .st-watching{background:color-mix(in srgb,var(--st-watching) 82%,#000)}
 .st-done{background:color-mix(in srgb,var(--st-done) 82%,#000)}
@@ -279,8 +275,7 @@ function gameCard(g, idx){
     <div class="cov"><img src="${esc(g.cover||g.cover_url)}" loading="lazy" referrerpolicy="no-referrer"
         data-fb="${esc(g.cover_url)}" onerror="imgErr(this)" alt="">
       ${g.hours ? `<span class="dur">${fmtHours(g.hours)}h</span>` : ""}
-      ${g.in_library ? "" : `<span class="badge st-on_hold">待玩</span>`}
-      ${g.notes.length ? `<span class="badge b-notes" title="笔记 ${g.notes.length} 篇">${ICON_NOTE} ${g.notes.length}</span>` : ""}</div>
+      ${g.in_library ? "" : `<span class="badge st-on_hold">待玩</span>`}</div>
     <div class="ci"><div class="t" title="${esc(g.name)}">${esc(g.name)}</div>
       ${g.name_en && g.name_en !== g.name ? `<div class="m">${esc(g.name_en)}</div>` : ""}
       <div class="m">${g.last_played ? `最后运行 ${esc(g.last_played)}`
