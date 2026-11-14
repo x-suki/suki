@@ -67,6 +67,7 @@ h2.sec{font-size:14px;color:var(--ink2);margin:22px 0 10px;font-weight:600}
 .tgl{display:flex;align-items:center;gap:5px;color:var(--ink2);font-size:12.5px;user-select:none}
 .tgl input{accent-color:var(--accent)}
 .count{color:var(--muted);font-size:12.5px;margin-left:auto}
+.mstat{color:var(--muted);font-size:12.5px;margin-left:auto}
 
 /* 卡片网格 */
 .grid{display:grid;gap:12px}
@@ -271,6 +272,8 @@ function animeCard(w, idx){
       ${w.notes.length ? `<div class="note">${ICON_NOTE} ${esc(w.notes[0].title || w.notes[0].body)}${w.notes.length > 1 ? ` 等 ${w.notes.length} 篇` : ""}</div>` : ""}</div></div>`;
 }
 function gameCard(g, idx){
+  /* 本月游玩时长（Game Note v0.9）：仅月度条目带 month_hours，库/待玩条目无此键 */
+  const mh = g.month_hours != null ? `本月 ${g.mh_partial ? "≥ " : ""}${g.month_hours} 小时` : "";
   return `<div class="card g" data-game="${idx}">
     <div class="cov"><img src="${esc(g.cover||g.cover_url)}" loading="lazy" referrerpolicy="no-referrer"
         data-fb="${esc(g.cover_url)}" onerror="imgErr(this)" alt="">
@@ -278,7 +281,7 @@ function gameCard(g, idx){
       ${g.in_library ? "" : `<span class="badge st-on_hold">待玩</span>`}</div>
     <div class="ci"><div class="t" title="${esc(g.name)}">${esc(g.name)}</div>
       ${g.name_en && g.name_en !== g.name ? `<div class="m">${esc(g.name_en)}</div>` : ""}
-      <div class="m">${g.last_played ? `最后运行 ${esc(g.last_played)}`
+      <div class="m">${g.last_played ? `最后运行 ${esc(g.last_played)}${mh ? ` · ${mh}` : ""}`
         : g.notes.length ? `${ICON_NOTE} ${g.notes.length} 篇笔记` : esc(g.genres||"")}</div></div></div>`;
 }
 
@@ -447,6 +450,11 @@ function renderGame(){
     const [y, mo] = m.month.split("-");
     return `<button class="chip ${m.month===s.month?"on":""}" data-gm="${m.month}">${y} 年 ${+mo} 月 ${m.count}</button>`;
   }).join("");
+  /* 该月游玩时长合计（v0.9 差分推算）；hours_n=0 = 整月一个都统计不出（早于快照启用） */
+  const curM = months.find(m=>m.month===s.month);
+  const mstat = curM ? (curM.hours_n
+    ? `该月游玩合计 ${curM.partial ? "≥ " : ""}${curM.hours} 小时 · ${curM.count} 款`
+    : `该月游玩时长暂无统计`) : "";
   $("#v-game").innerHTML = `
     <div class="bar">
       <div class="chips">
@@ -458,7 +466,7 @@ function renderGame(){
       <input type="search" id="q-game" placeholder="搜索游戏 / 笔记" value="${esc(s.q)}">
       <label class="tgl"><input type="checkbox" id="n-game" ${s.noted?"checked":""}>只看有笔记</label>
       <span class="count">${gs.length} 款</span></div>
-    ${s.shelf==="month" && months.length ? `<div class="bar"><div class="chips">${monthChips}</div></div>` : ""}
+    ${s.shelf==="month" && months.length ? `<div class="bar"><div class="chips">${monthChips}</div><span class="mstat">${mstat}</span></div>` : ""}
     <div class="grid g">${gs.map((g,i)=>gameCard(g,i)).join("") || `<div class="empty">没有匹配的内容</div>`}</div>`;
   GAME_IDX = gs;
   const qEl = $("#q-game");
